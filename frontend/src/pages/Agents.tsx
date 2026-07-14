@@ -18,7 +18,7 @@ export default function Agents() {
 
   const { data: agents, isLoading } = useQuery(
     'agents',
-    () => agentsApi.list().then(r => r.data),
+    () => agentsApi.list().then((r: any) => r.data),
     { refetchInterval: 10000 }
   )
 

@@ -9,13 +9,13 @@ export default function Skills() {
 
   const { data: skills, isLoading } = useQuery(
     'skills',
-    () => skillsApi.list().then(r => r.data),
+    () => skillsApi.list().then((r: any) => r.data),
     { refetchInterval: 30000 }
   )
 
   const { data: categories } = useQuery(
     'skillCategories',
-    () => skillsApi.getCategories().then(r => r.data)
+    () => skillsApi.getCategories().then((r: any) => r.data)
   )
 
   // ✅ Ensure skills is always an Array

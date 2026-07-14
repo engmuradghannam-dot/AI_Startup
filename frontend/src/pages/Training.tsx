@@ -18,13 +18,13 @@ export default function Training() {
 
   const { data: datasets, isLoading: datasetsLoading } = useQuery(
     'datasets',
-    () => trainingApi.getDatasets().then(r => r.data),
+    () => trainingApi.getDatasets().then((r: any) => r.data),
     { refetchInterval: 30000 }
   )
 
   const { data: feedbackStats } = useQuery(
     ['feedbackStats', selectedAgent],
-    () => trainingApi.getFeedbackStats(selectedAgent || undefined).then(r => r.data),
+    () => trainingApi.getFeedbackStats(selectedAgent || undefined).then((r: any) => r.data),
     { enabled: activeTab === 'feedback' }
   )
 
