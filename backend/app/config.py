@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://localhost:27017"
     DATABASE_NAME: str = "ai_startup"
 
-    # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # Redis (optional - app works without it)
+    REDIS_URL: str | None = None
 
     # Groq API
     GROQ_API_KEY: str = ""
