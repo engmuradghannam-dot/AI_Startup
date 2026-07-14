@@ -12,14 +12,14 @@ import MetricsCard from '../components/MetricsCard'
 import { healthApi, agentsApi } from '../services/api'
 
 export default function Dashboard() {
-  const { data: health } = useQuery('health', () => healthApi.check().then(r => r.data))
-  const { data: metrics } = useQuery('metrics', () => healthApi.getMetrics().then(r => r.data), {
+  const { data: health } = useQuery('health', () => healthApi.check().then((r: any) => r.data))
+  const { data: metrics } = useQuery('metrics', () => healthApi.getMetrics().then((r: any) => r.data), {
     refetchInterval: 30000,
   })
-  const { data: costs } = useQuery('costs', () => healthApi.getCosts().then(r => r.data), {
+  const { data: costs } = useQuery('costs', () => healthApi.getCosts().then((r: any) => r.data), {
     refetchInterval: 60000,
   })
-  const { data: alerts } = useQuery('alerts', () => healthApi.getAlerts().then(r => r.data), {
+  const { data: alerts } = useQuery('alerts', () => healthApi.getAlerts().then((r: any) => r.data), {
     refetchInterval: 30000,
   })
 
