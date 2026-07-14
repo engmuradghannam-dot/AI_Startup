@@ -8,6 +8,7 @@ import Agents from './pages/Agents'
 import AgentChat from './pages/AgentChat'
 import Skills from './pages/Skills'
 import Training from './pages/Training'
+import Settings from './pages/Settings'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,6 +31,7 @@ function App() {
               <Route path="/chat" element={<AgentChat />} />
               <Route path="/skills" element={<Skills />} />
               <Route path="/training" element={<Training />} />
+              <Route path="/settings" element={<Settings />} />
             </Routes>
           </Layout>
           <Toaster position="top-right" />
