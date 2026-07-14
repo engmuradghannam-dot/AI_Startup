@@ -6,6 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import Agents from './pages/Agents'
 import AgentChat from './pages/AgentChat'
+import BoardMeeting from './pages/BoardMeeting'
 import Skills from './pages/Skills'
 import Training from './pages/Training'
 import Settings from './pages/Settings'
@@ -29,6 +30,7 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/agents" element={<Agents />} />
               <Route path="/chat" element={<AgentChat />} />
+              <Route path="/board" element={<BoardMeeting />} />
               <Route path="/skills" element={<Skills />} />
               <Route path="/training" element={<Training />} />
               <Route path="/settings" element={<Settings />} />

@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Users,
   MessageSquare,
+  UsersRound,
   Zap,
   BookOpen,
   Settings,
@@ -16,6 +17,7 @@ const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Agents', href: '/agents', icon: Users },
   { name: 'Agent Chat', href: '/chat', icon: MessageSquare },
+  { name: 'Board Meeting', href: '/board', icon: UsersRound },
   { name: 'Skills', href: '/skills', icon: Zap },
   { name: 'Training', href: '/training', icon: BookOpen },
   { name: 'Settings', href: '/settings', icon: Settings },
@@ -96,8 +98,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="p-4 border-t border-gray-200">
             <div className="text-xs text-gray-500">
-              <p>v2.0.0</p>
-              <p>25 Skills Active</p>
+              <p>v2.1.0</p>
+              <p>Multi-AI Board</p>
             </div>
           </div>
         </div>
