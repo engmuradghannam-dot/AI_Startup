@@ -26,7 +26,7 @@ const getStoredProviders = () => {
 const getActiveProvider = () => {
   const providers = getStoredProviders()
   const active = providers.find((p: any) => p.isActive)
-  return active || providers[0] || { id: 'groq', name: 'Groq', models: ['llama-3.1-70b-versatile'] }
+  return active || providers[0] || { id: 'groq', name: 'Groq', models: ['llama-3.1-70b-versatile'], keyValue: '' }
 }
 
 export default function AgentChat() {
@@ -66,18 +66,38 @@ export default function AgentChat() {
 
     try {
       const provider = getActiveProvider()
+
+      // Check if API key exists
+      if (!provider.keyValue) {
+        setChatHistory((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: `${selectedAgent.name}: Please configure the API key for ${provider.name} in Settings > AI Providers.`,
+            agentId: selectedAgent.id,
+            mock: true,
+          },
+        ])
+        setIsLoading(false)
+        return
+      }
+
       const messages = [
-        { role: 'system', content: `You are ${selectedAgent.name}, an AI agent with role: ${selectedAgent.role}. ${selectedAgent.description || ''}` },
-        ...chatHistory.filter((m: any) => m.role === 'user' || m.role === 'assistant').slice(-10),
+        { role: 'system', content: `You are ${selectedAgent.name}, an AI agent with role: ${selectedAgent.role}. ${selectedAgent.description || ''} Respond in the same language as the user.` },
+        ...chatHistory.filter((m: any) => m.role === 'user' || m.role === 'assistant').slice(-10).map((m: any) => ({
+          role: m.role,
+          content: m.content,
+        })),
         { role: 'user', content: message },
       ]
 
-      // Call backend AI API
+      // Call backend AI API with API key
       const response = await axios.post('/ai-chat/chat', {
         provider: provider.id,
         model: provider.models[0],
         messages: messages,
         agent_name: selectedAgent.name,
+        api_key: provider.keyValue,  // Send API key to backend
       })
 
       const aiResponse = response.data.response || 'No response'
@@ -93,12 +113,13 @@ export default function AgentChat() {
           mock: response.data.mock,
         },
       ])
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Chat error:', error)
       setChatHistory((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: `${selectedAgent.name}: Sorry, I encountered an error. Please check your AI provider settings.`,
+          content: `${selectedAgent.name}: Sorry, I encountered an error. ${error.response?.data?.error || error.message || 'Please try again.'}`,
           agentId: selectedAgent.id,
           error: true,
         },
@@ -135,7 +156,6 @@ export default function AgentChat() {
               <button
                 key={provider.id}
                 onClick={() => {
-                  // Update active provider
                   const providers = getStoredProviders()
                   const updated = providers.map((p: any) => ({
                     ...p,
@@ -156,7 +176,7 @@ export default function AgentChat() {
             ))}
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            ✅ = API key configured | ❌ = No API key
+            ✅ = API key configured | ❌ = No API key (go to Settings)
           </p>
         </div>
       )}
@@ -208,7 +228,7 @@ export default function AgentChat() {
                   </div>
                 </div>
                 <div className="text-xs text-gray-400">
-                  Using: {activeProvider.name}
+                  Using: {activeProvider.name} {activeProvider.keyValue ? '✅' : '❌'}
                 </div>
               </div>
             )}
@@ -240,7 +260,7 @@ export default function AgentChat() {
                       ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
                       : 'bg-gray-100 text-gray-900'
                   }`}>
-                    <div className="text-sm">{msg.content}</div>
+                    <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
                     {msg.mock && (
                       <div className="text-xs text-yellow-600 mt-1">
                         ⚠️ Mock mode - Configure API key in Settings
