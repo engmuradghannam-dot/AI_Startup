@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from 'react-query'
-import { Key, Database, Globe, Save, TestTube, Trash2, Plus } from 'lucide-react'
+import { useQuery } from 'react-query'
+import { Key, Database, Globe, Save, TestTube, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 // AI Providers configuration
@@ -31,6 +31,24 @@ const DEFAULT_PROVIDERS: AIProvider[] = [
     keyValue: '',
     baseUrl: 'https://api.openai.com/v1',
     models: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+    isActive: false,
+  },
+  {
+    id: 'chatgpt',
+    name: 'ChatGPT (OpenAI)',
+    keyName: 'OPENAI_API_KEY',
+    keyValue: '',
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+    isActive: false,
+  },
+  {
+    id: 'grok',
+    name: 'Grok (xAI)',
+    keyName: 'XAI_API_KEY',
+    keyValue: '',
+    baseUrl: 'https://api.x.ai/v1',
+    models: ['grok-beta', 'grok-vision-beta'],
     isActive: false,
   },
   {
@@ -96,11 +114,9 @@ const storeMongoUri = (uri: string) => {
 }
 
 export default function Settings() {
-  const queryClient = useQueryClient()
   const [activeTab, setActiveTab] = useState('ai')
   const [providers, setProviders] = useState<AIProvider[]>(getStoredProviders())
   const [mongoUri, setMongoUri] = useState(getStoredMongoUri())
-  const [selectedProvider, setSelectedProvider] = useState<string>('')
   const [testResult, setTestResult] = useState<string>('')
 
   const tabs = [
@@ -134,13 +150,12 @@ export default function Settings() {
   const handleTestConnection = async (provider: AIProvider) => {
     setTestResult(`Testing ${provider.name}...`)
 
-    // Mock test - in real app, this would call the API
     setTimeout(() => {
       if (provider.keyValue) {
-        setTestResult(`✅ ${provider.name} connection successful!`)
-        toast.success(`${provider.name} is working`)
+        setTestResult(`✅ ${provider.name} API key saved!`)
+        toast.success(`${provider.name} configured`)
       } else {
-        setTestResult(`❌ ${provider.name} failed: No API key provided`)
+        setTestResult(`❌ ${provider.name}: No API key provided`)
         toast.error(`Please enter ${provider.name} API key`)
       }
     }, 1500)
