@@ -23,4 +23,15 @@ class FeedbackLoop:
     async def improve_agent(self, agent_id: str) -> bool:
         return True
 
-feedback_loop = FeedbackLoop()
+# Singleton instance
+_feedback_loop = None
+
+def get_feedback_loop():
+    """Get or create FeedbackLoop instance"""
+    global _feedback_loop
+    if _feedback_loop is None:
+        _feedback_loop = FeedbackLoop()
+    return _feedback_loop
+
+# Legacy alias
+feedback_loop = get_feedback_loop()
