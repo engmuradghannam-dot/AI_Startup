@@ -1,4 +1,4 @@
-# ============================================
+# Build v2.1 - Fixed frontend array validation\n# ============================================
 # AI Startup - Railway Deployment
 # Multi-Stage Build with Dockerfile
 # ============================================
