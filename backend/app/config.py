@@ -15,8 +15,17 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://localhost:27017"
     DATABASE_NAME: str = "ai_startup"
 
-    # Redis (optional - app works without it)
+    # Redis - Railway provides these automatically when Redis service is added
+    # Format: redis://default:${REDIS_PASSWORD}@${RAILWAY_TCP_PROXY_DOMAIN}:${RAILWAY_TCP_PROXY_PORT}
     REDIS_URL: str | None = None
+
+    # Railway Redis individual variables (fallback)
+    REDISHOST: str | None = None
+    REDISPORT: str | None = None
+    REDISUSER: str = "default"
+    REDIS_PASSWORD: str | None = None
+    RAILWAY_TCP_PROXY_DOMAIN: str | None = None
+    RAILWAY_TCP_PROXY_PORT: str | None = None
 
     # Groq API
     GROQ_API_KEY: str = ""
@@ -52,6 +61,28 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+
+    def get_redis_url(self) -> str | None:
+        """Build Redis URL from Railway variables or return existing REDIS_URL."""
+        # If full REDIS_URL is provided, use it
+        if self.REDIS_URL:
+            return self.REDIS_URL
+
+        # Build from Railway individual variables
+        if self.RAILWAY_TCP_PROXY_DOMAIN and self.REDIS_PASSWORD:
+            host = self.RAILWAY_TCP_PROXY_DOMAIN
+            port = self.RAILWAY_TCP_PROXY_PORT or "6379"
+            password = self.REDIS_PASSWORD
+            return f"redis://default:{password}@{host}:{port}"
+
+        if self.REDISHOST and self.REDIS_PASSWORD:
+            host = self.REDISHOST
+            port = self.REDISPORT or "6379"
+            user = self.REDISUSER or "default"
+            password = self.REDIS_PASSWORD
+            return f"redis://{user}:{password}@{host}:{port}"
+
+        return None
 
 
 @lru_cache()
