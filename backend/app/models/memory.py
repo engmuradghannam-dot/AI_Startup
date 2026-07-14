@@ -27,3 +27,15 @@ class MemoryUpdate(BaseModel):
     memory_type: Optional[str] = None
     importance: Optional[float] = None
     metadata: Optional[Dict[str, Any]] = None
+class TrainingDataset(BaseModel):
+    id: Optional[str] = None
+    name: str
+    description: Optional[str] = None
+    data: list = Field(default_factory=list)
+    labels: list = Field(default_factory=list)
+    model_type: str = "classification"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        from_attributes = True
