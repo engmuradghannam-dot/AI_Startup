@@ -9,7 +9,8 @@ FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy and install frontend deps
-COPY frontend/package.json frontend/package-lock.json ./
+COPY frontend/package.json ./
+COPY frontend/package-lock.json* ./
 RUN npm install
 
 # Copy frontend source and build
