@@ -4,8 +4,8 @@ from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 
-# Hardcoded MongoDB URI for Railway deployment
-MONGODB_URL = "mongodb+srv://engmuradghannam_db_user:Nyma6uufhFlybCPA@cluster0.oux10wd.mongodb.net/ai_startup?retryWrites=true&w=majority&appName=Cluster0"
+# MongoDB Atlas URI with new password
+MONGODB_URL = "mongodb+srv://engmuradghannam_db_user:pe5yBDUWcDs3N4AI@cluster0.oux10wd.mongodb.net/ai_startup?retryWrites=true&w=majority&appName=Cluster0"
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "ai_startup")
 
 # Global client instance
