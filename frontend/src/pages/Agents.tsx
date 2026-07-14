@@ -22,9 +22,12 @@ export default function Agents() {
     { refetchInterval: 10000 }
   )
 
-  const filteredAgents = agents?.filter((agent: any) =>
-    agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    agent.role.toLowerCase().includes(searchQuery.toLowerCase())
+  // ✅ Ensure agents is always an Array before filter
+  const agentsArray = Array.isArray(agents) ? agents : []
+
+  const filteredAgents = agentsArray.filter((agent: any) =>
+    agent.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    agent.role?.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
   const handleCreate = async () => {
@@ -99,13 +102,18 @@ export default function Agents() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredAgents?.map((agent: any) => (
+          {filteredAgents.map((agent: any) => (
             <AgentCard
-              key={agent.id}
+              key={agent.id || agent._id || Math.random()}
               agent={agent}
               onUpdate={() => queryClient.invalidateQueries('agents')}
             />
           ))}
+          {filteredAgents.length === 0 && (
+            <div className="col-span-full text-center py-12 text-gray-500">
+              No agents found
+            </div>
+          )}
         </div>
       )}
 
