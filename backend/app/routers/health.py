@@ -1,48 +1,29 @@
-"""Health and monitoring API routes."""
-from fastapi import APIRouter
-from datetime import datetime
+"""
+Health Router - Always available, no DB required
+"""
+from fastapi import APIRouter, HTTPException
+import time
 
-from app.services.performance_monitor import get_performance_monitor
-from app.services.cost_optimizer import get_cost_optimizer
-from app.services.security_guard import get_security_guard
-from app.config import get_settings
+router = APIRouter()
 
-router = APIRouter(prefix="/health", tags=["Health"])
-
+_start_time = time.time()
 
 @router.get("/")
-async def health_check():
-    """Basic health check."""
+async def health_status():
+    """Basic health status"""
+    uptime = time.time() - _start_time
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "version": get_settings().APP_VERSION,
+        "uptime_seconds": round(uptime, 2),
+        "service": "ai-startup"
     }
 
+@router.get("/ready")
+async def readiness_check():
+    """Readiness probe for Kubernetes/Railway"""
+    return {"ready": True}
 
-@router.get("/metrics")
-async def get_metrics():
-    """Get system performance metrics."""
-    monitor = await get_performance_monitor()
-    return await monitor.get_dashboard_metrics()
-
-
-@router.get("/costs")
-async def get_costs():
-    """Get cost optimization report."""
-    optimizer = await get_cost_optimizer()
-    return optimizer.get_cost_report()
-
-
-@router.get("/security")
-async def get_security_report():
-    """Get security status report."""
-    guard = await get_security_guard()
-    return guard.get_security_report()
-
-
-@router.get("/alerts")
-async def get_alerts():
-    """Get current system alerts."""
-    monitor = await get_performance_monitor()
-    return await monitor.check_alerts()
+@router.get("/live")
+async def liveness_check():
+    """Liveness probe for Kubernetes/Railway"""
+    return {"alive": True}

@@ -1,40 +1,50 @@
-# Stage 1: Build Frontend
+# ============================================
+# AI Startup - Multi-Stage Docker Build
+# Railway Compatible
+# ============================================
+
+# -------- Stage 1: Frontend Builder --------
 FROM node:20-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
-# Copy frontend package files
-COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm install
+# Copy package files first (for caching)
+COPY frontend/package*.json ./
+RUN npm ci --only=production 2>/dev/null || npm install
 
 # Copy frontend source and build
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: Python Backend with Node.js
-FROM python:3.11
+# -------- Stage 2: Python Backend --------
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install Node.js 20 from NodeSource (using apt-get after adding repo)
-RUN apt-get update && apt-get install -y --no-install-recommends     ca-certificates     gnupg     && mkdir -p /etc/apt/keyrings     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list     && apt-get update     && apt-get install -y nodejs     && rm -rf /var/lib/apt/lists/*
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends     gcc     libffi-dev     libssl-dev     && rm -rf /var/lib/apt/lists/*
 
-# Verify node is installed
-RUN node --version && npm --version
-
-# Copy backend requirements and install
+# Copy and install Python requirements
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend application
+# Copy backend code
 COPY backend/app/ ./app/
 COPY backend/tests/ ./tests/
 
-# Copy built frontend static files
+# Copy built frontend from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend_dist
 
-# Expose port
+# Environment
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PORT=8000
+
+# Railway uses PORT env var - bind to 0.0.0.0
 EXPOSE 8000
 
-# Start the application
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')" || exit 1
+
+# Start command - bind to 0.0.0.0 for Railway
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]

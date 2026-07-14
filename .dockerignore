@@ -1,6 +1,41 @@
-frontend/node_modules/
-frontend/dist/
-.git/
-__pycache__/
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+dist
+build
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend node_modules (will be rebuilt)
+frontend/node_modules/
+
+# Tests (optional - keep if you want to run tests)
+# backend/tests/
+
+# Local env
 .env
+.env.local
