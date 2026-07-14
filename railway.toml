@@ -12,3 +12,6 @@ restartPolicyMaxRetries = 10
 [deploy.env]
 PYTHONUNBUFFERED = "1"
 PYTHONDONTWRITEBYTECODE = "1"
+MONGODB_URI = "mongodb+srv://engmuradghannam_db_user:IWqsSLrcTgnwdgpD@cluster0.ouxl0wd.mongodb.net/ai_startup?retryWrites=true&w=majority"
+DATABASE_NAME = "ai_startup"
+ENVIRONMENT = "production"

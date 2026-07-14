@@ -32,8 +32,15 @@ def _create_mock_agent(data: dict):
 async def create_agent(data: AgentCreate):
     """Create a new agent."""
     try:
-        service = await get_agent_service()
-        agent = await service.create_agent(data)
+        # Try to use MongoDB first
+        agent = Agent(
+            name=data.name,
+            role=data.role,
+            description=data.description,
+            status=AgentStatus.ACTIVE,
+            priority=data.priority,
+        )
+        await agent.insert()
         return AgentResponse(
             id=str(agent.id),
             name=agent.name,
@@ -45,6 +52,7 @@ async def create_agent(data: AgentCreate):
             updated_at=agent.updated_at,
         )
     except Exception as e:
+        print(f"⚠️ MongoDB create failed: {e}")
         # Fallback: create in-memory agent
         mock_agent = _create_mock_agent(data.model_dump() if hasattr(data, 'model_dump') else data.dict())
         _in_memory_agents.append(mock_agent)
@@ -60,8 +68,14 @@ async def list_agents(
 ):
     """List all agents with optional filtering."""
     try:
-        service = await get_agent_service()
-        agents = await service.list_agents(status=status, role=role, limit=limit, skip=skip)
+        # Try MongoDB first
+        query = {}
+        if status:
+            query["status"] = status
+        if role:
+            query["role"] = role
+
+        agents = await Agent.find(query).limit(limit).skip(skip).to_list()
         return [
             AgentResponse(
                 id=str(a.id),
@@ -76,7 +90,8 @@ async def list_agents(
             for a in agents
         ]
     except Exception as e:
-        # Return in-memory agents if DB is not available
+        print(f"⚠️ MongoDB list failed: {e}")
+        # Return in-memory agents
         return [AgentResponse(**a) for a in _in_memory_agents]
 
 
@@ -84,8 +99,7 @@ async def list_agents(
 async def get_agent(agent_id: str):
     """Get agent by ID."""
     try:
-        service = await get_agent_service()
-        agent = await service.get_agent(agent_id)
+        agent = await Agent.get(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
         return AgentResponse(
@@ -101,6 +115,7 @@ async def get_agent(agent_id: str):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"⚠️ MongoDB get failed: {e}")
         # Check in-memory agents
         for a in _in_memory_agents:
             if a["id"] == agent_id:
@@ -112,10 +127,16 @@ async def get_agent(agent_id: str):
 async def update_agent(agent_id: str, data: AgentUpdate):
     """Update an agent."""
     try:
-        service = await get_agent_service()
-        agent = await service.update_agent(agent_id, data)
+        agent = await Agent.get(agent_id)
         if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+
+        update_data = data.model_dump(exclude_unset=True) if hasattr(data, 'model_dump') else data.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            if hasattr(agent, field):
+                setattr(agent, field, value)
+
+        await agent.save()
         return AgentResponse(
             id=str(agent.id),
             name=agent.name,
@@ -129,6 +150,7 @@ async def update_agent(agent_id: str, data: AgentUpdate):
     except HTTPException:
         raise
     except Exception as e:
+        print(f"⚠️ MongoDB update failed: {e}")
         # Update in-memory agent
         for i, a in enumerate(_in_memory_agents):
             if a["id"] == agent_id:
@@ -143,13 +165,14 @@ async def update_agent(agent_id: str, data: AgentUpdate):
 async def delete_agent(agent_id: str):
     """Delete an agent."""
     try:
-        service = await get_agent_service()
-        deleted = await service.delete_agent(agent_id)
-        if not deleted:
+        agent = await Agent.get(agent_id)
+        if not agent:
             raise HTTPException(status_code=404, detail="Agent not found")
+        await agent.delete()
     except HTTPException:
         raise
     except Exception as e:
+        print(f"⚠️ MongoDB delete failed: {e}")
         # Delete from in-memory
         global _in_memory_agents
         _in_memory_agents = [a for a in _in_memory_agents if a["id"] != agent_id]
@@ -170,10 +193,27 @@ async def execute_agent_task(agent_id: str, task: dict):
 async def scale_up_agents(count: int = 5, role: str = "general"):
     """Scale up agents."""
     try:
-        scaler = await get_auto_scaler()
-        result = await scaler.scale_up(count, role)
-        return result
+        # Try MongoDB first
+        created = []
+        for i in range(count):
+            agent = Agent(
+                name=f"Auto-Scaled Agent {i+1}",
+                role=role,
+                description=f"Auto-scaled agent with role {role}",
+                status=AgentStatus.ACTIVE,
+            )
+            await agent.insert()
+            created.append(agent)
+
+        return {
+            "status": "success",
+            "message": f"Created {count} agents in MongoDB",
+            "count": count,
+            "role": role,
+            "agents": [{"id": str(a.id), "name": a.name} for a in created],
+        }
     except Exception as e:
+        print(f"⚠️ MongoDB scale-up failed: {e}")
         # Create mock agents
         for i in range(count):
             mock_agent = _create_mock_agent({

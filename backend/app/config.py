@@ -1,61 +1,37 @@
-"""
-Configuration module - Railway Compatible
-"""
+"""Application configuration."""
 import os
-import secrets
-from functools import lru_cache
 from pydantic_settings import BaseSettings
-from pydantic import Field
+
 
 class Settings(BaseSettings):
-    """Application settings with Railway fallbacks"""
+    """Application settings."""
 
-    # Application
-    APP_NAME: str = Field(default="AI Startup", alias="APP_NAME")
-    DEBUG: bool = Field(default=False, alias="DEBUG")
-
-    # Security
-    SECRET_KEY: str = Field(
-        default_factory=lambda: secrets.token_urlsafe(32),
-        alias="SECRET_KEY"
-    )
-
-    # MongoDB - Railway compatible
-    MONGODB_URL: str = Field(
-        default="mongodb://localhost:27017/ai_startup",
-        alias="MONGODB_URL"
-    )
-    MONGODB_DB_NAME: str = Field(default="ai_startup", alias="MONGODB_DB_NAME")
-
-    # Redis - Optional
-    REDIS_URL: str = Field(
-        default="redis://localhost:6379/0",
-        alias="REDIS_URL"
-    )
+    # MongoDB
+    mongodb_uri: str = os.getenv("MONGODB_URI", "mongodb+srv://engmuradghannam_db_user:IWqsSLrcTgnwdgpD@cluster0.ouxl0wd.mongodb.net/ai_startup?retryWrites=true&w=majority")
+    database_name: str = os.getenv("DATABASE_NAME", "ai_startup")
 
     # Groq API
-    GROQ_API_KEY: str = Field(default="", alias="GROQ_API_KEY")
+    groq_api_key: str = os.getenv("GROQ_API_KEY", "")
 
-    # Celery - Optional
-    CELERY_BROKER_URL: str = Field(
-        default="redis://localhost:6379/0",
-        alias="CELERY_BROKER_URL"
-    )
-    CELERY_RESULT_BACKEND: str = Field(
-        default="redis://localhost:6379/0",
-        alias="CELERY_RESULT_BACKEND"
-    )
+    # Redis
+    redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379")
+
+    # JWT
+    jwt_secret: str = os.getenv("JWT_SECRET", "super-secret-key-change-in-production")
+    jwt_algorithm: str = "HS256"
+    jwt_expiration: int = 86400  # 24 hours
+
+    # Environment
+    environment: str = os.getenv("ENVIRONMENT", "development")
+    debug: bool = environment == "development"
 
     # Server
-    PORT: int = Field(default=8000, alias="PORT")
-    HOST: str = Field(default="0.0.0.0", alias="HOST")
+    host: str = "0.0.0.0"
+    port: int = int(os.getenv("PORT", "8080"))
 
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
-        extra = "ignore"  # Ignore extra env vars
 
-@lru_cache()
-def get_settings() -> Settings:
-    """Get cached settings instance"""
-    return Settings()
+
+settings = Settings()

@@ -1,81 +1,58 @@
+"""Database connection and initialization."""
 import os
-import asyncio
-from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+from beanie import init_beanie
+from app.models.agent import Agent
+from app.models.skill import Skill
+from app.models.memory import TrainingDataset, MemoryEntry, FeedbackEntry
+from app.models.task import Task
 
-# MongoDB Atlas Legacy Connection String (direct connection, no SRV)
-MONGODB_URL = "mongodb://engmuradghannam_db_user:pe5yBDUWcDs3N4AI@ac-ylprbta-shard-00-00.ouxl0wd.mongodb.net:27017,ac-ylprbta-shard-00-01.ouxl0wd.mongodb.net:27017,ac-ylprbta-shard-00-02.ouxl0wd.mongodb.net:27017/ai_startup?ssl=true&replicaSet=atlas-cq9h5g-shard-0&authSource=admin&retryWrites=true&w=majority&appName=Cluster0"
-MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "ai_startup")
+# Global client
+_client = None
 
-# Global client instance
-_mongo_client: Optional[AsyncIOMotorClient] = None
-_mongo_db = None
-
-async def get_mongo_client() -> AsyncIOMotorClient:
-    """Get or create MongoDB client"""
-    global _mongo_client
-    if _mongo_client is None:
-        _mongo_client = AsyncIOMotorClient(
-            MONGODB_URL,
-            serverSelectionTimeoutMS=5000,
-            connectTimeoutMS=5000,
-            socketTimeoutMS=5000,
-        )
-    return _mongo_client
 
 async def get_database():
-    """Get database instance"""
-    global _mongo_db
-    if _mongo_db is None:
-        client = await get_mongo_client()
-        _mongo_db = client[MONGODB_DB_NAME]
-    return _mongo_db
+    """Get database connection."""
+    global _client
 
-async def test_connection() -> bool:
-    """Test MongoDB connection"""
-    try:
-        client = await get_mongo_client()
-        await client.admin.command('ping')
-        print(f"✅ MongoDB connected successfully")
-        return True
-    except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-        print(f"⚠️ Database connection failed: {e}")
-        return False
+    if _client is None:
+        mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        _client = AsyncIOMotorClient(mongodb_uri)
 
-async def init_database():
-    """Initialize database connection"""
+    database_name = os.getenv("DATABASE_NAME", "ai_startup")
+    return _client[database_name]
+
+
+async def init_db():
+    """Initialize database with Beanie ODM."""
+    global _client
+
     try:
-        connected = await test_connection()
-        if connected:
-            db = await get_database()
-            # Create indexes if needed
-            await db.agents.create_index("agent_id", unique=True)
-            await db.memories.create_index([("agent_id", 1), ("created_at", -1)])
-            await db.datasets.create_index("name", unique=True)
-            print("✅ MongoDB initialized successfully")
-            return True
-        else:
-            print("⚠️ Running in LIMITED MODE - some features unavailable")
-            return False
+        mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+        _client = AsyncIOMotorClient(mongodb_uri, serverSelectionTimeoutMS=5000)
+
+        # Test connection
+        await _client.admin.command('ping')
+        print("✅ MongoDB connected successfully")
+
+        database_name = os.getenv("DATABASE_NAME", "ai_startup")
+        db = _client[database_name]
+
+        # Initialize Beanie with all models
+        await init_beanie(
+            database=db,
+            document_models=[
+                Agent,
+                Skill,
+                TrainingDataset,
+                MemoryEntry,
+                FeedbackEntry,
+                Task,
+            ]
+        )
+        print("✅ Beanie ODM initialized")
+
     except Exception as e:
-        print(f"⚠️ Database initialization failed: {e}")
-        print("⚠️ Running in LIMITED MODE - some features unavailable")
-        return False
-
-# Alias for init_database (used by main.py)
-init_db = init_database
-
-async def close_database():
-    """Close database connection"""
-    global _mongo_client
-    if _mongo_client:
-        _mongo_client.close()
-        _mongo_client = None
-        print("✅ MongoDB connection closed")
-
-# Collection helpers
-async def get_collection(collection_name: str):
-    """Get a collection from the database"""
-    db = await get_database()
-    return db[collection_name]
+        print(f"⚠️ MongoDB connection failed: {e}")
+        print("⚠️ Running in LIMITED MODE - using in-memory storage")
+        raise
