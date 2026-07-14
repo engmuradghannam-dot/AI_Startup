@@ -25,7 +25,14 @@ export default function AgentChat() {
     { retry: 1 }
   )
 
-  const agents = agentsResponse?.data || []
+  // Handle different API response formats safely
+  const rawData = agentsResponse?.data
+  let agents: any[] = []
+  if (Array.isArray(rawData)) {
+    agents = rawData
+  } else if (rawData && typeof rawData === 'object') {
+    agents = rawData.agents || rawData.data || []
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -70,10 +77,13 @@ export default function AgentChat() {
         task_type: 'chat'
       })
 
+      const resultData = response.data
+      const resultText = resultData?.result || resultData?.response || JSON.stringify(resultData, null, 2)
+
       setMessages(prev => [...prev, {
         id: (Date.now() + 2).toString(),
         role: 'agent',
-        content: response.data?.result || response.data?.response || 'No response',
+        content: resultText,
         timestamp: new Date()
       }])
     } catch (error: any) {
@@ -111,19 +121,23 @@ export default function AgentChat() {
             <div className="flex justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
             </div>
+          ) : agents.length === 0 ? (
+            <div className="text-center py-8 text-gray-500 text-sm">
+              No agents found.
+            </div>
           ) : (
             <div className="space-y-1">
               {agents.map((agent: any) => (
                 <button
-                  key={agent.id}
-                  onClick={() => setSelectedAgentId(agent.id)}
-                  className={selectedAgentId === agent.id 
+                  key={agent.id || agent._id || Math.random()}
+                  onClick={() => setSelectedAgentId(agent.id || agent._id)}
+                  className={selectedAgentId === (agent.id || agent._id)
                     ? 'w-full text-left p-3 rounded-lg bg-primary-50 border border-primary-200 text-sm'
                     : 'w-full text-left p-3 rounded-lg hover:bg-gray-50 border border-transparent text-sm'
                   }
                 >
-                  <div className="font-medium text-gray-900">{agent.name}</div>
-                  <div className="text-xs text-gray-500 capitalize">{agent.role}</div>
+                  <div className="font-medium text-gray-900">{agent.name || 'Unnamed Agent'}</div>
+                  <div className="text-xs text-gray-500 capitalize">{agent.role || 'general'}</div>
                 </button>
               ))}
             </div>
