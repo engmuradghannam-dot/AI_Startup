@@ -1,14 +1,29 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from 'react-query'
-import { Plus, Search, Filter } from 'lucide-react'
+import { Plus, Search, Filter, Bot, Trash2, Play, ChevronDown, ChevronUp } from 'lucide-react'
 import AgentCard from '../components/AgentCard'
 import { agentsApi } from '../services/api'
 import toast from 'react-hot-toast'
+
+// Local storage helpers
+const getStoredAgents = () => {
+  try {
+    const stored = localStorage.getItem('ai_startup_agents')
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+const storeAgents = (agents: any[]) => {
+  localStorage.setItem('ai_startup_agents', JSON.stringify(agents))
+}
 
 export default function Agents() {
   const queryClient = useQueryClient()
   const [searchQuery, setSearchQuery] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
   const [newAgent, setNewAgent] = useState({
     name: '',
     role: 'general',
@@ -16,39 +31,114 @@ export default function Agents() {
     priority: 5,
   })
 
-  const { data: agents, isLoading } = useQuery(
+  const { data: apiAgents, isLoading } = useQuery(
     'agents',
     () => agentsApi.list().then((r: any) => r.data),
-    { refetchInterval: 10000 }
+    { refetchInterval: 5000 }
   )
 
-  // ✅ Ensure agents is always an Array before filter
-  const agentsArray = Array.isArray(agents) ? agents : []
+  // Merge API agents with local storage
+  const storedAgents = getStoredAgents()
+  const apiAgentsArray = Array.isArray(apiAgents) ? apiAgents : []
 
-  const filteredAgents = agentsArray.filter((agent: any) =>
-    agent.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    agent.role?.toLowerCase().includes(searchQuery.toLowerCase())
+  // Use stored agents if API returns empty
+  const allAgents = apiAgentsArray.length > 0 ? apiAgentsArray : storedAgents
+
+  const filteredAgents = allAgents.filter((agent: any) =>
+    (agent.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+    (agent.role?.toLowerCase() || '').includes(searchQuery.toLowerCase())
   )
 
   const handleCreate = async () => {
     try {
-      await agentsApi.create(newAgent)
+      const result = await agentsApi.create(newAgent)
+      const createdAgent = result.data || result
+
+      // Add to local storage
+      const current = getStoredAgents()
+      current.push(createdAgent)
+      storeAgents(current)
+
       toast.success('Agent created successfully')
       setShowCreateModal(false)
       setNewAgent({ name: '', role: 'general', description: '', priority: 5 })
       queryClient.invalidateQueries('agents')
     } catch {
-      toast.error('Failed to create agent')
+      // Create locally if API fails
+      const localAgent = {
+        id: `local_${Date.now()}`,
+        name: newAgent.name,
+        role: newAgent.role,
+        status: 'active',
+        description: newAgent.description,
+        priority: newAgent.priority,
+        metrics: { cpu: 0, memory: 0, tasks_completed: 0 },
+        tasks: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+      const current = getStoredAgents()
+      current.push(localAgent)
+      storeAgents(current)
+
+      toast.success('Agent created locally')
+      setShowCreateModal(false)
+      setNewAgent({ name: '', role: 'general', description: '', priority: 5 })
+      queryClient.invalidateQueries('agents')
     }
   }
 
   const handleScaleUp = async () => {
     try {
-      await agentsApi.scaleUp(5, 'general')
+      const result = await agentsApi.scaleUp(5, 'general')
       toast.success('Scaled up 5 agents')
       queryClient.invalidateQueries('agents')
     } catch {
-      toast.error('Failed to scale up')
+      // Create locally
+      for (let i = 0; i < 5; i++) {
+        const localAgent = {
+          id: `local_${Date.now()}_${i}`,
+          name: `Auto-Scaled Agent ${i + 1}`,
+          role: 'general',
+          status: 'active',
+          description: 'Auto-scaled agent',
+          priority: 5,
+          metrics: { cpu: 0, memory: 0, tasks_completed: 0 },
+          tasks: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }
+        const current = getStoredAgents()
+        current.push(localAgent)
+        storeAgents(current)
+      }
+      toast.success('Created 5 local agents')
+      queryClient.invalidateQueries('agents')
+    }
+  }
+
+  const handleDelete = (agentId: string) => {
+    const current = getStoredAgents()
+    const updated = current.filter((a: any) => a.id !== agentId)
+    storeAgents(updated)
+    toast.success('Agent deleted')
+    queryClient.invalidateQueries('agents')
+  }
+
+  const handleAddTask = (agentId: string, taskName: string) => {
+    const current = getStoredAgents()
+    const agent = current.find((a: any) => a.id === agentId)
+    if (agent) {
+      if (!agent.tasks) agent.tasks = []
+      agent.tasks.push({
+        id: `task_${Date.now()}`,
+        name: taskName,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      })
+      storeAgents(current)
+      toast.success('Task added')
+      queryClient.invalidateQueries('agents')
     }
   }
 
@@ -94,24 +184,119 @@ export default function Agents() {
         </button>
       </div>
 
-      {/* Agents Grid */}
-      {isLoading ? (
+      {/* Agents List */}
+      {isLoading && allAgents.length === 0 ? (
         <div className="text-center py-12">
           <div className="animate-spin w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full mx-auto" />
           <p className="text-gray-500 mt-4">Loading agents...</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="space-y-4">
           {filteredAgents.map((agent: any) => (
-            <AgentCard
+            <div
               key={agent.id || agent._id || Math.random()}
-              agent={agent}
-              onUpdate={() => queryClient.invalidateQueries('agents')}
-            />
+              className="bg-white rounded-lg border border-gray-200 overflow-hidden"
+            >
+              {/* Agent Header */}
+              <div
+                className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50"
+                onClick={() => setExpandedAgent(expandedAgent === agent.id ? null : agent.id)}
+              >
+                <div className="flex items-center space-x-4">
+                  <Bot className="w-10 h-10 text-primary-600" />
+                  <div>
+                    <h3 className="font-medium text-gray-900">{agent.name || 'Unnamed'}</h3>
+                    <p className="text-sm text-gray-500">{agent.role || 'general'} • {agent.status || 'active'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-500">
+                    {agent.tasks?.length || 0} tasks
+                  </span>
+                  {expandedAgent === agent.id ? (
+                    <ChevronUp className="w-5 h-5 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="w-5 h-5 text-gray-400" />
+                  )}
+                </div>
+              </div>
+
+              {/* Expanded Tasks */}
+              {expandedAgent === agent.id && (
+                <div className="border-t border-gray-200 p-4 bg-gray-50">
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Tasks</h4>
+
+                  {/* Add Task */}
+                  <div className="flex space-x-2 mb-4">
+                    <input
+                      type="text"
+                      placeholder="New task name..."
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          handleAddTask(agent.id, (e.target as HTMLInputElement).value)
+                          ;(e.target as HTMLInputElement).value = ''
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        const input = document.querySelector(`input[placeholder="New task name..."]`) as HTMLInputElement
+                        if (input?.value) {
+                          handleAddTask(agent.id, input.value)
+                          input.value = ''
+                        }
+                      }}
+                      className="px-3 py-2 bg-primary-600 text-white rounded-lg text-sm"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Tasks List */}
+                  <div className="space-y-2">
+                    {agent.tasks?.map((task: any) => (
+                      <div
+                        key={task.id || Math.random()}
+                        className="flex items-center justify-between bg-white p-3 rounded-lg border border-gray-200"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <Play className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm text-gray-900">{task.name}</span>
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            task.status === 'completed' ? 'bg-green-100 text-green-700' :
+                            task.status === 'running' ? 'bg-blue-100 text-blue-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {task.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {(!agent.tasks || agent.tasks.length === 0) && (
+                      <p className="text-gray-500 text-sm text-center py-4">No tasks yet</p>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex justify-end mt-4 space-x-2">
+                    <button
+                      onClick={() => handleDelete(agent.id)}
+                      className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm flex items-center"
+                    >
+                      <Trash2 className="w-4 h-4 mr-1" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           ))}
           {filteredAgents.length === 0 && (
-            <div className="col-span-full text-center py-12 text-gray-500">
-              No agents found
+            <div className="text-center py-12 text-gray-500">
+              <Bot className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+              <p>No agents found</p>
+              <p className="text-sm mt-1">Create an agent to get started</p>
             </div>
           )}
         </div>
