@@ -1,218 +1,129 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery } from 'react-query'
-import { Send, Bot, User, Loader2, MessageSquare } from 'lucide-react'
+import { Send, Bot, User } from 'lucide-react'
 import { agentsApi } from '../services/api'
 
-interface Message {
-  id: string
-  role: string
-  content: string
-  timestamp: Date
-}
-
 export default function AgentChat() {
-  const [messages, setMessages] = useState<Message[]>([
-    { id: '1', role: 'system', content: 'Welcome! Select an agent and start chatting.', timestamp: new Date() }
-  ])
-  const [input, setInput] = useState('')
-  const [selectedAgentId, setSelectedAgentId] = useState<string>('')
-  const [isSending, setIsSending] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [message, setMessage] = useState('')
+  const [chatHistory, setChatHistory] = useState<any[]>([])
 
-  const { data: agentsResponse, isLoading: agentsLoading } = useQuery(
-    'agents-list',
-    () => agentsApi.list(),
-    { retry: 1 }
+  const { data: agentsResponse, isLoading } = useQuery(
+    'agents',
+    () => agentsApi.list().then((r: any) => r.data),
   )
 
-  // Handle different API response formats safely
-  const rawData = agentsResponse?.data
-  let agents: any[] = []
-  if (Array.isArray(rawData)) {
-    agents = rawData
-  } else if (rawData && typeof rawData === 'object') {
-    agents = rawData.agents || rawData.data || []
-  }
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  // ✅ Ensure agents is always an Array
+  const agents = Array.isArray(agentsResponse) ? agentsResponse : []
 
   const handleSend = async () => {
-    if (!input.trim()) return
+    if (!message.trim()) return
 
-    const text = input.trim()
-    setInput('')
-    setIsSending(true)
+    const newMessage = { role: 'user', content: message }
+    setChatHistory([...chatHistory, newMessage])
+    setMessage('')
 
-    // Add user message
-    setMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      role: 'user',
-      content: text,
-      timestamp: new Date()
-    }])
-
-    try {
-      let agentId = selectedAgentId
-      if (!agentId && agents.length > 0) {
-        agentId = agents[0].id
-        setSelectedAgentId(agentId)
-      }
-
-      if (!agentId) {
-        setMessages(prev => [...prev, {
-          id: (Date.now() + 1).toString(),
-          role: 'system',
-          content: 'No agents available. Please create an agent first.',
-          timestamp: new Date()
-        }])
-        setIsSending(false)
-        return
-      }
-
-      const response = await agentsApi.execute(agentId, {
-        name: 'Chat',
-        description: text,
-        task_type: 'chat'
-      })
-
-      const resultData = response.data
-      const resultText = resultData?.result || resultData?.response || JSON.stringify(resultData, null, 2)
-
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 2).toString(),
-        role: 'agent',
-        content: resultText,
-        timestamp: new Date()
-      }])
-    } catch (error: any) {
-      setMessages(prev => [...prev, {
-        id: (Date.now() + 3).toString(),
-        role: 'system',
-        content: 'Error: ' + (error.message || 'Failed to send message'),
-        timestamp: new Date()
-      }])
-    } finally {
-      setIsSending(false)
-    }
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
+    // Mock response for now
+    setTimeout(() => {
+      setChatHistory((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'This is a mock response. AI integration coming soon!' },
+      ])
+    }, 1000)
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] -mx-6 -mt-6">
-      {/* Sidebar */}
-      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-4 border-b border-gray-200">
-          <h2 className="text-lg font-bold text-gray-900 flex items-center">
-            <Bot className="w-5 h-5 mr-2 text-primary-600" />
-            Agents
-          </h2>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-2">
-          {agentsLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
-            </div>
-          ) : agents.length === 0 ? (
-            <div className="text-center py-8 text-gray-500 text-sm">
-              No agents found.
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {agents.map((agent: any) => (
-                <button
-                  key={agent.id || agent._id || Math.random()}
-                  onClick={() => setSelectedAgentId(agent.id || agent._id)}
-                  className={selectedAgentId === (agent.id || agent._id)
-                    ? 'w-full text-left p-3 rounded-lg bg-primary-50 border border-primary-200 text-sm'
-                    : 'w-full text-left p-3 rounded-lg hover:bg-gray-50 border border-transparent text-sm'
-                  }
-                >
-                  <div className="font-medium text-gray-900">{agent.name || 'Unnamed Agent'}</div>
-                  <div className="text-xs text-gray-500 capitalize">{agent.role || 'general'}</div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Agent Chat</h1>
+        <p className="text-gray-600 mt-1">Chat with your AI agents</p>
       </div>
 
-      {/* Chat Area */}
-      <div className="flex-1 flex flex-col bg-gray-50">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center">
-          <MessageSquare className="w-5 h-5 text-primary-600 mr-2" />
-          <h1 className="font-semibold text-gray-900">Agent Chat</h1>
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {messages.map((msg) => (
-            <div key={msg.id} className={msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-              <div className="max-w-2xl flex items-start space-x-2">
-                {msg.role !== 'user' && (
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center flex-shrink-0">
-                    <Bot className="w-4 h-4 text-white" />
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* Agents List */}
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <h2 className="font-medium text-gray-900 mb-4">Available Agents</h2>
+            {isLoading ? (
+              <p className="text-gray-500">Loading...</p>
+            ) : (
+              <div className="space-y-2">
+                {agents.map((agent: any) => (
+                  <div
+                    key={agent.id || agent._id || Math.random()}
+                    className="flex items-center p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  >
+                    <Bot className="w-5 h-5 text-primary-600 mr-3" />
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">{agent.name || 'Unnamed'}</div>
+                      <div className="text-xs text-gray-500">{agent.role || 'general'}</div>
+                    </div>
                   </div>
-                )}
-                <div className={msg.role === 'user' 
-                  ? 'bg-primary-600 text-white rounded-2xl px-4 py-2'
-                  : msg.role === 'system'
-                  ? 'bg-gray-100 text-gray-700 rounded-2xl px-4 py-2 border border-gray-200'
-                  : 'bg-white text-gray-800 rounded-2xl px-4 py-2 border border-gray-200 shadow-sm'
-                }>
-                  <div className="whitespace-pre-wrap text-sm">{msg.content}</div>
-                </div>
-                {msg.role === 'user' && (
-                  <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center flex-shrink-0">
-                    <User className="w-4 h-4 text-white" />
-                  </div>
+                ))}
+                {agents.length === 0 && (
+                  <p className="text-gray-500 text-sm">No agents available</p>
                 )}
               </div>
-            </div>
-          ))}
-          {isSending && (
-            <div className="flex justify-start">
-              <div className="max-w-2xl flex items-center space-x-2">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
-                </div>
-                <div className="bg-white rounded-2xl px-4 py-2 border border-gray-200">
-                  <span className="text-sm text-gray-500">Thinking...</span>
-                </div>
-              </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+            )}
+          </div>
         </div>
 
-        {/* Input */}
-        <div className="bg-white border-t border-gray-200 px-6 py-4">
-          <div className="flex items-end space-x-2 max-w-4xl mx-auto">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type your message..."
-              rows={1}
-              className="flex-1 px-4 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none"
-              style={{ minHeight: '44px' }}
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isSending}
-              className="p-3 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50"
-            >
-              <Send className="w-5 h-5" />
-            </button>
+        {/* Chat Area */}
+        <div className="lg:col-span-3">
+          <div className="bg-white rounded-lg border border-gray-200 flex flex-col h-[600px]">
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {chatHistory.map((msg: any, index: number) => (
+                <div
+                  key={index}
+                  className={`flex items-start space-x-3 ${
+                    msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                    msg.role === 'user' ? 'bg-primary-600' : 'bg-gray-200'
+                  }`}>
+                    {msg.role === 'user' ? (
+                      <User className="w-4 h-4 text-white" />
+                    ) : (
+                      <Bot className="w-4 h-4 text-gray-600" />
+                    )}
+                  </div>
+                  <div className={`max-w-[70%] rounded-lg px-4 py-2 ${
+                    msg.role === 'user'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-900'
+                  }`}>
+                    {msg.content}
+                  </div>
+                </div>
+              ))}
+              {chatHistory.length === 0 && (
+                <div className="text-center text-gray-500 mt-20">
+                  <Bot className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                  <p>Start a conversation with an agent</p>
+                </div>
+              )}
+            </div>
+
+            {/* Input */}
+            <div className="border-t border-gray-200 p-4">
+              <div className="flex space-x-3">
+                <input
+                  type="text"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                  placeholder="Type your message..."
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                />
+                <button
+                  onClick={handleSend}
+                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  <Send className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

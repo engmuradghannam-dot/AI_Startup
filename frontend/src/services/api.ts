@@ -1,4 +1,4 @@
-// API Client v2.2 - Fixed endpoints for production
+// API Client v2.3 - Fixed all endpoints for production
 import axios from 'axios'
 
 // @ts-ignore - Vite env types
@@ -15,7 +15,6 @@ const api = axios.create({
 const ensureArray = (response: any): any[] => {
   if (!response) return []
   if (Array.isArray(response)) return response
-  // If Object containing data/results/items/agents/skills/datasets
   if (typeof response === 'object') {
     return response.data || response.results || response.items ||
            response.agents || response.skills || response.datasets || []
@@ -40,8 +39,12 @@ export const agentsApi = {
   create: (data: any) => api.post('/agents/', data),
   update: (id: string, data: any) => api.put(`/agents/${id}`, data),
   delete: (id: string) => api.delete(`/agents/${id}`),
+  clone: (id: string, newName: string) => api.post(`/agents/${id}/clone`, null, { params: { new_name: newName } }),
   execute: (id: string, data: any) => api.post(`/agents/${id}/execute`, data),
   scaleUp: (count: number, role: string) => api.post('/agents/scale-up', null, { params: { count, role } }),
+  getMetrics: (id: string) => api.get(`/agents/${id}/metrics`),
+  getScalingMetrics: () => api.get('/agents/scaling/metrics'),
+  getLoadMetrics: () => api.get('/agents/load/metrics'),
 }
 
 // Skills API
@@ -85,6 +88,9 @@ export const trainingApi = {
 export const healthApi = {
   check: () => api.get('/health/'),
   getMetrics: () => api.get('/health/metrics'),
+  getCosts: () => api.get('/health/costs'),
+  getSecurity: () => api.get('/health/security'),
+  getAlerts: () => api.get('/health/alerts'),
 }
 
 export default api
