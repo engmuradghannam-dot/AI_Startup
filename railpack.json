@@ -1,0 +1,20 @@
+{
+  "providers": ["python"],
+  "steps": [
+    {
+      "uses": "node.install",
+      "cmd": "cd frontend && npm install"
+    },
+    {
+      "uses": "node.build",
+      "cmd": "cd frontend && npm run build"
+    },
+    {
+      "uses": "python.install",
+      "requirements": "backend/requirements.txt"
+    }
+  ],
+  "start": {
+    "cmd": "cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+  }
+}
