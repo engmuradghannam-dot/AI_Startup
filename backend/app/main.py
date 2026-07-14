@@ -146,3 +146,12 @@ else:
     logger.warning("⚠️ Frontend dist not found at %s", frontend_path)
 
 logger.info("✅ AI Startup application created successfully")
+# Root endpoint for Railway domain
+@app.get("/")
+async def root():
+    return {
+        "message": "AI Startup API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "health": "/health/"
+    }
