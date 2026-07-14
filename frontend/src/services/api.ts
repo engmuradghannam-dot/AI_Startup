@@ -1,4 +1,4 @@
-import axios from 'axios'
+// API Client v2.1 - Fixed array/object validation for production\nimport axios from 'axios'
 
 // @ts-ignore - Vite env types
 const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || window?.location?.origin?.replace(/\/$/, '') || 'http://localhost:8000'
