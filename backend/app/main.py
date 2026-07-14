@@ -106,7 +106,11 @@ async def api_health_check():
 # ============================================
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Root endpoint - Serve frontend if available, else API info"""
+    frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend_dist")
+    index_file = os.path.join(frontend_path, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
     return {
         "message": "AI Startup API",
         "version": "2.0.0",
@@ -156,10 +160,28 @@ if os.path.exists(frontend_path):
     if os.path.exists(assets_path):
         app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 
-    # Serve index.html for root path if no API route matched
-    # But DON'T use a catch-all that would override /health/
     logger.info("✅ Frontend dist found at %s", frontend_path)
 else:
     logger.warning("⚠️ Frontend dist not found at %s", frontend_path)
+
+# ============================================
+# CATCH-ALL FOR SPA ROUTES
+# Must be AFTER all API routes and health endpoints
+# Must NOT match /health, /api, /docs, /openapi
+# ============================================
+@app.get("/{full_path:path}")
+async def catch_all(full_path: str):
+    """Serve frontend for all non-API routes (SPA support)"""
+    # Skip API and system routes
+    if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi") or full_path.startswith("health") or full_path.startswith("ready") or full_path.startswith("live"):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+    # Try to serve index.html for SPA routes
+    frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend_dist")
+    index_file = os.path.join(frontend_path, "index.html")
+    if os.path.exists(index_file):
+        return FileResponse(index_file)
+
+    return JSONResponse({"detail": "Frontend not built"}, status_code=404)
 
 logger.info("✅ AI Startup application created successfully")
