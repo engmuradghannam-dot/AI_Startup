@@ -18,5 +18,5 @@ COPY tests/ ./tests/
 # Expose port
 EXPOSE 8000
 
-# Run application (production mode - no reload)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# FIX: Use $PORT env var
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

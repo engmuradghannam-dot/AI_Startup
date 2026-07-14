@@ -1,49 +1,97 @@
 """FastAPI main application."""
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-from beanie import init_beanie
 
-from app.config import get_settings
-from app.models.agent import Agent
-from app.models.skill import Skill
-from app.models.memory import MemoryEntry, TrainingDataset, FeedbackEntry, KnowledgeGraphNode, KnowledgeGraphEdge
-from app.models.task import Task
-from app.routers import agents, skills, training, health
+# ============================================================
+# HEALTHCHECK ENDPOINTS - MUST be defined FIRST, before any
+# imports that might fail (MongoDB, etc.)
+# ============================================================
+app = FastAPI(title="AI Startup API", docs_url="/docs", redoc_url="/redoc")
 
+@app.get("/health/")
+async def health_check():
+    """Railway healthcheck endpoint - must return 200 OK."""
+    return JSONResponse(content={"status": "ok", "service": "ai-startup"}, status_code=200)
+
+@app.get("/health")
+async def health_check_no_slash():
+    """Fallback healthcheck without trailing slash."""
+    return JSONResponse(content={"status": "ok", "service": "ai-startup"}, status_code=200)
+
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {"message": "AI Startup API", "docs": "/docs", "health": "/health/"}
+
+# ============================================================
+# CORS Middleware
+# ============================================================
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ============================================================
+# MongoDB & Beanie Initialization (with error handling)
+# ============================================================
+from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan handler."""
-    # Startup
-    settings = get_settings()
+    """Application lifespan handler with graceful MongoDB init."""
+    import os
+    from motor.motor_asyncio import AsyncIOMotorClient
+    from beanie import init_beanie
+    from app.config import get_settings
+    from app.models.agent import Agent
+    from app.models.skill import Skill
+    from app.models.memory import MemoryEntry, TrainingDataset, FeedbackEntry, KnowledgeGraphNode, KnowledgeGraphEdge
+    from app.models.task import Task
 
-    # Initialize MongoDB
-    client = AsyncIOMotorClient(settings.MONGODB_URL)
-    await init_beanie(
-        database=client[settings.DATABASE_NAME],
-        document_models=[
-            Agent,
-            Skill,
-            MemoryEntry,
-            TrainingDataset,
-            FeedbackEntry,
-            KnowledgeGraphNode,
-            KnowledgeGraphEdge,
-            Task,
-        ],
-    )
-
-    # Seed default skills if none exist
-    await seed_default_skills()
+    try:
+        settings = get_settings()
+        client = AsyncIOMotorClient(settings.MONGODB_URL, serverSelectionTimeoutMS=5000)
+        await init_beanie(
+            database=client[settings.DATABASE_NAME],
+            document_models=[
+                Agent, Skill, MemoryEntry, TrainingDataset,
+                FeedbackEntry, KnowledgeGraphNode, KnowledgeGraphEdge, Task,
+            ],
+        )
+        # Seed default skills if none exist
+        await seed_default_skills()
+        print("MongoDB connected successfully")
+    except Exception as e:
+        print(f"WARNING: MongoDB connection failed: {e}")
+        print("App will run in limited mode without database")
+        client = None
 
     yield
 
-    # Shutdown
-    client.close()
+    if client:
+        client.close()
+        print("MongoDB connection closed")
 
+# Update lifespan
+app.router.lifespan_context = lifespan
 
+# ============================================================
+# Include Routers
+# ============================================================
+from app.routers import agents, skills, training, health as health_router
+
+app.include_router(health_router.router, prefix="/api/v1/health", tags=["health"])
+app.include_router(agents.router, prefix="/api/v1/agents", tags=["agents"])
+app.include_router(skills.router, prefix="/api/v1/skills", tags=["skills"])
+app.include_router(training.router, prefix="/api/v1/training", tags=["training"])
+
+# ============================================================
+# Seed Default Skills
+# ============================================================
 async def seed_default_skills():
     """Seed default skills on startup."""
     from app.models.skill import Skill, SkillCategory, SkillTrigger, SkillExecutionMode
@@ -206,121 +254,121 @@ async def seed_default_skills():
         {
             "name": "model-selector",
             "display_name": "Model Selector",
-            "description": "Select optimal AI model per task",
-            "category": SkillCategory.OPTIMIZATION,
-            "trigger": SkillTrigger.AUTO,
-            "execution_mode": SkillExecutionMode.SYNC,
-            "system_prompt": "Select cheapest adequate model based on complexity, budget, latency, and context requirements.",
-            "enabled": True,
-            "is_core": False,
-        },
-        {
-            "name": "context-optimizer",
-            "display_name": "Context Optimizer",
-            "description": "Maximize effective context window usage",
-            "category": SkillCategory.OPTIMIZATION,
+            "description": "Intelligent model selection based on task requirements",
+            "category": SkillCategory.LEARNING,
             "trigger": SkillTrigger.CONDITIONAL,
             "execution_mode": SkillExecutionMode.SYNC,
-            "system_prompt": "Compress, summarize, and prioritize context to fit within token limits while preserving critical information.",
-            "enabled": True,
-            "is_core": False,
-        },
-        {
-            "name": "multi-modal",
-            "display_name": "Multi-Modal",
-            "description": "Process images, audio, and text",
-            "category": SkillCategory.MULTIMODAL,
-            "trigger": SkillTrigger.MANUAL,
-            "execution_mode": SkillExecutionMode.SYNC,
-            "system_prompt": "Process and understand images, audio, and text in unified workflows.",
+            "system_prompt": "Select optimal LLM based on task complexity, latency requirements, and cost constraints.",
             "enabled": True,
             "is_core": False,
         },
         {
             "name": "collaboration",
             "display_name": "Collaboration",
-            "description": "Enable multi-agent collaboration",
-            "category": SkillCategory.COLLABORATION,
-            "trigger": SkillTrigger.MANUAL,
+            "description": "Multi-agent communication and coordination",
+            "category": SkillCategory.ORCHESTRATION,
+            "trigger": SkillTrigger.AUTO,
             "execution_mode": SkillExecutionMode.PARALLEL,
-            "system_prompt": "Coordinate multiple agents working together through structured communication protocols.",
+            "system_prompt": "Enable agents to share context, delegate tasks, and resolve conflicts. Use structured communication protocols.",
             "enabled": True,
             "is_core": False,
         },
         {
-            "name": "security-guard",
-            "display_name": "Security Guard",
-            "description": "Protect sensitive data and prevent vulnerabilities",
-            "category": SkillCategory.SECURITY,
-            "trigger": SkillTrigger.AUTO,
-            "execution_mode": SkillExecutionMode.SYNC,
-            "system_prompt": "Sanitize inputs, validate permissions, detect threats, and protect sensitive data.",
-            "enabled": True,
-            "is_core": False,
-        },
-        {
-            "name": "performance-monitor",
-            "display_name": "Performance Monitor",
-            "description": "Track and optimize system performance",
-            "category": SkillCategory.MONITORING,
-            "trigger": SkillTrigger.AUTO,
-            "execution_mode": SkillExecutionMode.ASYNC,
-            "system_prompt": "Collect metrics, detect anomalies, and alert on performance issues.",
-            "enabled": True,
-            "is_core": False,
-        },
-        {
-            "name": "data-pipeline",
-            "display_name": "Data Pipeline",
-            "description": "Process and transform data",
+            "name": "context-optimizer",
+            "display_name": "Context Optimizer",
+            "description": "Compress and prioritize context for optimal token usage",
             "category": SkillCategory.LEARNING,
-            "trigger": SkillTrigger.MANUAL,
-            "execution_mode": SkillExecutionMode.BATCH,
-            "system_prompt": "Ingest, clean, transform, validate, and export data efficiently.",
+            "trigger": SkillTrigger.CONDITIONAL,
+            "execution_mode": SkillExecutionMode.SYNC,
+            "system_prompt": "Compress context to fit token limits while preserving critical information. Prioritize recent and relevant context.",
             "enabled": True,
             "is_core": False,
         },
         {
             "name": "feedback-loop",
             "display_name": "Feedback Loop",
-            "description": "Continuous learning through feedback",
+            "description": "Continuous learning from user feedback",
             "category": SkillCategory.LEARNING,
             "trigger": SkillTrigger.EVENT,
             "execution_mode": SkillExecutionMode.ASYNC,
-            "system_prompt": "Collect feedback, analyze patterns, and apply improvements to agent behavior.",
-            "enabled": True,
-            "is_core": False,
-        },
-        {
-            "name": "deployment-manager",
-            "display_name": "Deployment Manager",
-            "description": "Automate deployment with safety checks",
-            "category": SkillCategory.DEPLOYMENT,
-            "trigger": SkillTrigger.MANUAL,
-            "execution_mode": SkillExecutionMode.ASYNC,
-            "system_prompt": "Build, test, deploy, and monitor with automatic rollback on failure.",
-            "enabled": True,
-            "is_core": False,
-        },
-        {
-            "name": "cost-optimizer",
-            "display_name": "Cost Optimizer",
-            "description": "Minimize costs while maintaining quality",
-            "category": SkillCategory.OPTIMIZATION,
-            "trigger": SkillTrigger.AUTO,
-            "execution_mode": SkillExecutionMode.ASYNC,
-            "system_prompt": "Select cost-effective models, cache results, batch requests, and monitor spending.",
+            "system_prompt": "Collect, analyze, and incorporate user feedback to improve agent performance over time.",
             "enabled": True,
             "is_core": False,
         },
         {
             "name": "knowledge-graph",
             "display_name": "Knowledge Graph",
-            "description": "Build interconnected knowledge for reasoning",
+            "description": "Build and maintain relationships between concepts",
             "category": SkillCategory.LEARNING,
             "trigger": SkillTrigger.AUTO,
             "execution_mode": SkillExecutionMode.ASYNC,
-            "system_prompt": "Extract entities, identify relationships, and maintain a graph of interconnected knowledge.",
+            "system_prompt": "Extract entities and relationships from interactions. Build queryable knowledge graphs for reasoning.",
+            "enabled": True,
+            "is_core": False,
+        },
+        {
+            "name": "multi-modal",
+            "display_name": "Multi-Modal",
+            "description": "Process and generate multiple content types",
+            "category": SkillCategory.LEARNING,
+            "trigger": SkillTrigger.CONDITIONAL,
+            "execution_mode": SkillExecutionMode.SYNC,
+            "system_prompt": "Handle text, images, audio, and structured data. Route to appropriate processing pipelines.",
+            "enabled": True,
+            "is_core": False,
+        },
+        {
+            "name": "performance-monitor",
+            "display_name": "Performance Monitor",
+            "description": "Track and optimize agent performance metrics",
+            "category": SkillCategory.ORCHESTRATION,
+            "trigger": SkillTrigger.AUTO,
+            "execution_mode": SkillExecutionMode.ASYNC,
+            "system_prompt": "Monitor latency, accuracy, cost, and throughput. Alert on anomalies and suggest optimizations.",
+            "enabled": True,
+            "is_core": False,
+        },
+        {
+            "name": "security-guard",
+            "display_name": "Security Guard",
+            "description": "Protect against prompt injection and data leakage",
+            "category": SkillCategory.ORCHESTRATION,
+            "trigger": SkillTrigger.EVENT,
+            "execution_mode": SkillExecutionMode.SYNC,
+            "system_prompt": "Detect and block prompt injection, data exfiltration, and unauthorized access attempts. Log security events.",
+            "enabled": True,
+            "is_core": False,
+        },
+        {
+            "name": "data-pipeline",
+            "display_name": "Data Pipeline",
+            "description": "ETL and data processing for agent workflows",
+            "category": SkillCategory.SCALING,
+            "trigger": SkillTrigger.CONDITIONAL,
+            "execution_mode": SkillExecutionMode.ASYNC,
+            "system_prompt": "Design and execute data pipelines. Handle ingestion, transformation, and storage efficiently.",
+            "enabled": True,
+            "is_core": False,
+        },
+        {
+            "name": "deployment-manager",
+            "display_name": "Deployment Manager",
+            "description": "Automate deployment and rollback procedures",
+            "category": SkillCategory.SCALING,
+            "trigger": SkillTrigger.MANUAL,
+            "execution_mode": SkillExecutionMode.ASYNC,
+            "system_prompt": "Manage deployment pipelines. Support blue-green, canary, and rollback strategies.",
+            "enabled": True,
+            "is_core": False,
+        },
+        {
+            "name": "cost-optimizer",
+            "display_name": "Cost Optimizer",
+            "description": "Minimize operational costs while maintaining quality",
+            "category": SkillCategory.SCALING,
+            "trigger": SkillTrigger.AUTO,
+            "execution_mode": SkillExecutionMode.ASYNC,
+            "system_prompt": "Optimize model selection, caching, and batching to reduce costs. Track and report savings.",
             "enabled": True,
             "is_core": False,
         },
@@ -331,73 +379,4 @@ async def seed_default_skills():
         if not existing:
             skill = Skill(**skill_data)
             await skill.insert()
-
-
-# Create FastAPI app
-settings = get_settings()
-
-app = FastAPI(
-    title=settings.APP_NAME,
-    version=settings.APP_VERSION,
-    description="AI Startup - Multi-Agent System with 25 Skills",
-    lifespan=lifespan,
-)
-
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include routers
-app.include_router(agents.router)
-app.include_router(skills.router)
-app.include_router(training.router)
-app.include_router(health.router)
-
-
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {
-        "name": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "status": "running",
-        "skills_count": 25,
-        "features": [
-            "Multi-Agent Orchestration",
-            "Auto-Scaling",
-            "Load Balancing",
-            "Error Recovery",
-            "Code Evolution",
-            "Model Selection",
-            "Context Optimization",
-            "Multi-Modal Processing",
-            "Agent Collaboration",
-            "Security Guard",
-            "Performance Monitoring",
-            "Data Pipelines",
-            "Feedback Loop",
-            "Deployment Management",
-            "Cost Optimization",
-            "Knowledge Graph",
-        ],
-    }
-
-
-@app.get("/stats")
-async def get_stats():
-    """Get system statistics."""
-    from app.models.agent import Agent
-    from app.models.skill import Skill
-    from app.models.task import Task
-
-    return {
-        "agents": await Agent.find().count(),
-        "skills": await Skill.find().count(),
-        "tasks": await Task.find().count(),
-        "timestamp": datetime.utcnow().isoformat(),
-    }
+            print(f"Created skill: {skill_data['name']}")
