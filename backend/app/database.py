@@ -4,11 +4,8 @@ from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 
-# Support both MONGODB_URL and MONGODB_URI
-MONGODB_URL = os.getenv("MONGODB_URL") or os.getenv("MONGODB_URI") or "mongodb://localhost:27017"
-print(f"DEBUG: MONGODB_URL env = {os.getenv('MONGODB_URL')}")
-print(f"DEBUG: MONGODB_URI env = {os.getenv('MONGODB_URI')}")
-print(f"DEBUG: Final MONGODB_URL = {MONGODB_URL[:50]}...")
+# Hardcoded MongoDB URI for Railway deployment
+MONGODB_URL = "mongodb+srv://engmuradghannam_db_user:Nyma6uufhFlybCPA@cluster0.oux10wd.mongodb.net/ai_startup?retryWrites=true&w=majority&appName=Cluster0"
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "ai_startup")
 
 # Global client instance
