@@ -1,6 +1,29 @@
 from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+from enum import Enum
+
+class MemoryType(str, Enum):
+    GENERAL = "general"
+    CONVERSATION = "conversation"
+    SKILL = "skill"
+    TASK = "task"
+    KNOWLEDGE = "knowledge"
+    FEEDBACK = "feedback"
+
+class FeedbackType(str, Enum):
+    GENERAL = "general"
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    SUGGESTION = "suggestion"
+    BUG = "bug"
+
+class DatasetType(str, Enum):
+    CLASSIFICATION = "classification"
+    REGRESSION = "regression"
+    CLUSTERING = "clustering"
+    NLP = "nlp"
+    IMAGE = "image"
 
 class Memory(BaseModel):
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
