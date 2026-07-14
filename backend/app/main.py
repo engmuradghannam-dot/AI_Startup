@@ -380,3 +380,25 @@ async def seed_default_skills():
             skill = Skill(**skill_data)
             await skill.insert()
             print(f"Created skill: {skill_data['name']}")
+
+
+# ============================================================
+# Serve Frontend Static Files (Production)
+# ============================================================
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
+# Serve static files from frontend_dist directory
+frontend_dist_path = os.path.join(os.path.dirname(__file__), "..", "frontend_dist")
+if os.path.exists(frontend_dist_path):
+    app.mount("/static", StaticFiles(directory=os.path.join(frontend_dist_path, "assets")), name="static")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        """Serve frontend for all non-API routes."""
+        # API routes are already handled by routers above
+        index_path = os.path.join(frontend_dist_path, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {"error": "Frontend not built"}
