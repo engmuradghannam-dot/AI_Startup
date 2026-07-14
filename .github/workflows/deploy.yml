@@ -11,10 +11,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
+      - name: Install Railway CLI v3
+        run: npm install -g @railway/cli@3
 
       - name: Deploy to Railway
         run: railway up --service=ai-startup --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT: ai-startup
