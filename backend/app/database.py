@@ -4,8 +4,8 @@ from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 
-# MongoDB Atlas URI with new password
-MONGODB_URL = "mongodb+srv://engmuradghannam_db_user:pe5yBDUWcDs3N4AI@cluster0.oux10wd.mongodb.net/ai_startup?retryWrites=true&w=majority&appName=Cluster0"
+# MongoDB Atlas Legacy Connection String (direct connection, no SRV)
+MONGODB_URL = "mongodb://engmuradghannam_db_user:pe5yBDUWcDs3N4AI@ac-ylprbta-shard-00-00.ouxl0wd.mongodb.net:27017,ac-ylprbta-shard-00-01.ouxl0wd.mongodb.net:27017,ac-ylprbta-shard-00-02.ouxl0wd.mongodb.net:27017/ai_startup?ssl=true&replicaSet=atlas-cq9h5g-shard-0&authSource=admin&retryWrites=true&w=majority&appName=Cluster0"
 MONGODB_DB_NAME = os.getenv("MONGODB_DB_NAME", "ai_startup")
 
 # Global client instance
