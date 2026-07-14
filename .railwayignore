@@ -1,0 +1,4 @@
+# Force Railway to use Dockerfile only
+# Ignore files that trigger Nixpacks
+frontend/package.json
+frontend/package-lock.json

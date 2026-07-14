@@ -1,6 +1,6 @@
 # ============================================
-# AI Startup - Multi-Stage Docker Build
-# Railway Compatible
+# AI Startup - Railway Deployment
+# Multi-Stage Build with Dockerfile
 # ============================================
 
 # -------- Stage 1: Frontend Builder --------
@@ -8,9 +8,9 @@ FROM node:20-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
-# Copy package files first (for caching)
+# Copy and install frontend deps
 COPY frontend/package*.json ./
-RUN npm ci --only=production 2>/dev/null || npm install
+RUN npm install
 
 # Copy frontend source and build
 COPY frontend/ ./
@@ -21,8 +21,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends     gcc     libffi-dev     libssl-dev     && rm -rf /var/lib/apt/lists/*
+# Install system dependencies for Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python requirements
 COPY backend/requirements.txt .
@@ -40,11 +44,12 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PORT=8000
 
-# Railway uses PORT env var - bind to 0.0.0.0
+# Expose port
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')" || exit 1
 
-# Start command - bind to 0.0.0.0 for Railway
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+# Start command - MUST bind to 0.0.0.0 for Railway
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
