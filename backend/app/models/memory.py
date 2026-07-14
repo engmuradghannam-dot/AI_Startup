@@ -1,8 +1,10 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
 class Memory(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+    
     id: Optional[str] = None
     agent_id: str
     content: str
@@ -11,11 +13,10 @@ class Memory(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 class MemoryEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+    
     id: Optional[str] = None
     agent_id: str
     content: str
@@ -24,9 +25,6 @@ class MemoryEntry(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
 
 class MemoryCreate(BaseModel):
     agent_id: str
@@ -42,29 +40,54 @@ class MemoryUpdate(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 class TrainingDataset(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+    
     id: Optional[str] = None
     name: str
     description: Optional[str] = None
     data: List = Field(default_factory=list)
     labels: List = Field(default_factory=list)
-    model_type: str = "classification"
+    dataset_type: str = "classification"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True
-        protected_namespaces = ()
 
 class DatasetCreate(BaseModel):
     name: str
     description: Optional[str] = None
     data: List = Field(default_factory=list)
     labels: List = Field(default_factory=list)
-    model_type: str = "classification"
+    dataset_type: str = "classification"
 
 class DatasetUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     data: Optional[List] = None
     labels: Optional[List] = None
-    model_type: Optional[str] = None
+    dataset_type: Optional[str] = None
+
+class FeedbackEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+    
+    id: Optional[str] = None
+    agent_id: str
+    user_id: Optional[str] = None
+    feedback_type: str = "general"
+    content: str
+    rating: Optional[float] = Field(default=None, ge=0.0, le=5.0)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+
+class FeedbackCreate(BaseModel):
+    agent_id: str
+    user_id: Optional[str] = None
+    feedback_type: str = "general"
+    content: str
+    rating: Optional[float] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+class FeedbackUpdate(BaseModel):
+    feedback_type: Optional[str] = None
+    content: Optional[str] = None
+    rating: Optional[float] = None
+    metadata: Optional[Dict[str, Any]] = None
