@@ -5,13 +5,15 @@ import {
   Zap, 
   BookOpen, 
   Menu,
-  X
+  X,
+  MessageSquare
 } from 'lucide-react'
 import { useState } from 'react'
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/agents', label: 'Agents', icon: Users },
+  { path: '/chat', label: 'Agent Chat', icon: MessageSquare },
   { path: '/skills', label: 'Skills', icon: Zap },
   { path: '/training', label: 'Training', icon: BookOpen },
 ]

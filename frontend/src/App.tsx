@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Agents from './pages/Agents'
+import AgentChat from './pages/AgentChat'
 import Skills from './pages/Skills'
 import Training from './pages/Training'
 
@@ -17,6 +18,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/agents" element={<Agents />} />
+            <Route path="/chat" element={<AgentChat />} />
             <Route path="/skills" element={<Skills />} />
             <Route path="/training" element={<Training />} />
           </Routes>
