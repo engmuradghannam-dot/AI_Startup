@@ -1,4 +1,4 @@
-# Build v2.1 - Fixed frontend array validation\n# ============================================
+# Build v2.2 - Fixed Docker build cache and TypeScript errors\n# ============================================
 # AI Startup - Railway Deployment
 # Multi-Stage Build with Dockerfile
 # ============================================
@@ -9,7 +9,7 @@ FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy and install frontend deps
-COPY frontend/package*.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm install
 
 # Copy frontend source and build
