@@ -1,6 +1,7 @@
-# Build v2.2 - Fixed Docker build cache and TypeScript errors\n# ============================================
+# Build v2.3 - Railway Compatible with $PORT
+# ============================================
 # AI Startup - Railway Deployment
-# Multi-Stage Build with Dockerfile
+# Multi-Stage Build
 # ============================================
 
 # -------- Stage 1: Frontend Builder --------
@@ -22,7 +23,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies for Python packages
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
@@ -43,14 +44,13 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend_dist
 # Environment
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV PORT=8080
 
-# Expose port
+# Expose port (Railway sets $PORT)
 EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health/')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:' + str(__import__('os').environ.get('PORT', '8080')) + '/health/')" || exit 1
 
-# Start command - MUST bind to 0.0.0.0 for Railway
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Start command - MUST use $PORT for Railway
+CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"
