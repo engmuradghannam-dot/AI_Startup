@@ -27,6 +27,7 @@ class KnowledgeGraph:
                 related.append(edge)
         return related
 
+# Singleton
 _knowledge_graph = None
 
 def get_knowledge_graph():
@@ -34,5 +35,9 @@ def get_knowledge_graph():
     if _knowledge_graph is None:
         _knowledge_graph = KnowledgeGraph()
     return _knowledge_graph
+
+def get_knowledge_graph_service():
+    """Service accessor for knowledge graph"""
+    return get_knowledge_graph()
 
 knowledge_graph = get_knowledge_graph()
