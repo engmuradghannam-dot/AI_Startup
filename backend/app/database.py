@@ -37,15 +37,13 @@ async def test_connection() -> bool:
     try:
         client = await get_mongo_client()
         await client.admin.command('ping')
-        print(f"✅ MongoDB connected successfully to {MONGODB_URL.split('@')[-1].split('/')[0]}")
+        print(f"✅ MongoDB connected successfully")
         return True
     except (ConnectionFailure, ServerSelectionTimeoutError) as e:
         print(f"⚠️ Database connection failed: {e}")
         return False
 
 async def init_database():
-    # Alias for init_database (used by main.py)
-init_db = init_database
     """Initialize database connection"""
     try:
         connected = await test_connection()
@@ -64,6 +62,9 @@ init_db = init_database
         print(f"⚠️ Database initialization failed: {e}")
         print("⚠️ Running in LIMITED MODE - some features unavailable")
         return False
+
+# Alias for init_database (used by main.py)
+init_db = init_database
 
 async def close_database():
     """Close database connection"""
