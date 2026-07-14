@@ -1,4 +1,4 @@
-// API Client v2.1 - Fixed array/object validation for production\n
+// API Client v2.2 - Fixed endpoints for production
 import axios from 'axios'
 
 // @ts-ignore - Vite env types
@@ -40,12 +40,8 @@ export const agentsApi = {
   create: (data: any) => api.post('/agents/', data),
   update: (id: string, data: any) => api.put(`/agents/${id}`, data),
   delete: (id: string) => api.delete(`/agents/${id}`),
-  clone: (id: string, newName: string) => api.post(`/agents/${id}/clone`, null, { params: { new_name: newName } }),
-  getMetrics: (id: string) => api.get(`/agents/${id}/metrics`),
   execute: (id: string, data: any) => api.post(`/agents/${id}/execute`, data),
-  getScalingMetrics: () => api.get('/agents/scaling/metrics'),
-  scaleUp: (count: number, role: string) => api.post('/agents/scaling/scale-up', null, { params: { count, role } }),
-  getLoadMetrics: () => api.get('/agents/load/metrics'),
+  scaleUp: (count: number, role: string) => api.post('/agents/scale-up', null, { params: { count, role } }),
 }
 
 // Skills API
@@ -60,7 +56,7 @@ export const skillsApi = {
   delete: (id: string) => api.delete(`/skills/${id}`),
   execute: (id: string, data: any) => api.post(`/skills/${id}/execute`, data),
   getCategories: async () => {
-    const res = await api.get('/skills/categories/summary')
+    const res = await api.get('/skills/categories')
     return { ...res, data: ensureObject(res.data) }
   },
 }
@@ -71,7 +67,7 @@ export const trainingApi = {
     const res = await api.get('/training/datasets')
     return { ...res, data: ensureArray(res.data) }
   },
-  createDataset: (name: string, description: string, type: string) =>
+  createDataset: (name: string, description: string = '', type: string = 'conversations') =>
     api.post('/training/datasets', null, { params: { name, description, dataset_type: type } }),
   getFeedbackStats: async (agentId?: string) => {
     const res = await api.get('/training/feedback/stats', { params: { agent_id: agentId } })
@@ -79,16 +75,16 @@ export const trainingApi = {
   },
   processFeedback: (limit: number) => api.post('/training/feedback/process', null, { params: { limit } }),
   getMemory: (agentId: string) => api.get(`/training/memory/${agentId}`),
-  getKnowledgeGraph: (agentId: string) => api.get(`/training/knowledge-graph/${agentId}`),
+  getStats: async () => {
+    const res = await api.get('/training/stats')
+    return { ...res, data: ensureObject(res.data) }
+  },
 }
 
 // Health API
 export const healthApi = {
   check: () => api.get('/health/'),
   getMetrics: () => api.get('/health/metrics'),
-  getCosts: () => api.get('/health/costs'),
-  getSecurity: () => api.get('/health/security'),
-  getAlerts: () => api.get('/health/alerts'),
 }
 
 export default api
