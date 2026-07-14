@@ -44,6 +44,8 @@ async def test_connection() -> bool:
         return False
 
 async def init_database():
+    # Alias for init_database (used by main.py)
+init_db = init_database
     """Initialize database connection"""
     try:
         connected = await test_connection()
