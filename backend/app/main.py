@@ -125,13 +125,29 @@ except Exception as e:
 # STATIC FILES - Frontend
 # ============================================
 
-# Serve frontend static files
-frontend_dist = os.path.join(os.path.dirname(__file__), "frontend_dist")
-if os.path.exists(frontend_dist):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
-    logger.info(f"✅ Static files mounted from {frontend_dist}")
+# Look for frontend_dist in multiple locations
+frontend_dist = None
+possible_paths = [
+    os.path.join(os.path.dirname(__file__), "frontend_dist"),  # app/frontend_dist
+    "/app/frontend_dist",  # Docker root
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend_dist"),  # backend/frontend_dist
+]
+
+for path in possible_paths:
+    if os.path.exists(path):
+        frontend_dist = path
+        logger.info(f"✅ Found frontend_dist at: {path}")
+        break
+
+if frontend_dist and os.path.exists(frontend_dist):
+    assets_path = os.path.join(frontend_dist, "assets")
+    if os.path.exists(assets_path):
+        app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
+        logger.info(f"✅ Static files mounted from {assets_path}")
+    else:
+        logger.warning(f"⚠️ assets folder not found at {assets_path}")
 else:
-    logger.warning(f"⚠️ Frontend dist not found at {frontend_dist}")
+    logger.warning(f"⚠️ Frontend dist not found. Checked: {possible_paths}")
 
 # ============================================
 # CATCH-ALL ROUTE (MUST be last!)
@@ -140,22 +156,25 @@ else:
 @app.get("/{full_path:path}")
 async def catch_all(full_path: str):
     """Catch-all route to serve frontend."""
-    if full_path.startswith("api/") or full_path.startswith("ai-chat/"):
+    if full_path.startswith("api/") or full_path.startswith("ai-chat/") or full_path.startswith("health/"):
         return JSONResponse(
             status_code=404,
             content={"detail": f"API endpoint /{full_path} not found"}
         )
 
-    index_path = os.path.join(frontend_dist, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
+    # Try to serve index.html from found frontend_dist
+    if frontend_dist:
+        index_path = os.path.join(frontend_dist, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
 
     return JSONResponse(
         status_code=200,
         content={
             "status": "AI Startup API Server Running",
             "version": "2.1.0",
-            "frontend": "not_built" if not os.path.exists(frontend_dist) else "available",
+            "frontend": "not_built" if not frontend_dist else "available",
+            "frontend_path": str(frontend_dist),
             "endpoints": [
                 "/health/",
                 "/ai-chat/chat",
