@@ -136,11 +136,12 @@ async def api_root():
 def include_routers():
     """Include API routers with error handling"""
     try:
-        from app.routers import agents, skills, training
+        from app.routers import agents, skills, training, ai_chat
 
         app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
         app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
         app.include_router(training.router, prefix="/api/training", tags=["training"])
+        app.include_router(ai_chat.router, tags=["ai-chat"])
 
         logger.info("✅ API routers loaded successfully")
     except Exception as e:

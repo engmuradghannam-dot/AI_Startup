@@ -32,34 +32,34 @@ const ensureObject = (response: any): any => {
 // Agents API
 export const agentsApi = {
   list: async () => {
-    const res = await api.get('/agents/')
+    const res = await api.get('/api/agents/')
     return { ...res, data: ensureArray(res.data) }
   },
-  get: (id: string) => api.get(`/agents/${id}`),
-  create: (data: any) => api.post('/agents/', data),
-  update: (id: string, data: any) => api.put(`/agents/${id}`, data),
-  delete: (id: string) => api.delete(`/agents/${id}`),
-  clone: (id: string, newName: string) => api.post(`/agents/${id}/clone`, null, { params: { new_name: newName } }),
-  execute: (id: string, data: any) => api.post(`/agents/${id}/execute`, data),
-  scaleUp: (count: number, role: string) => api.post('/agents/scale-up', null, { params: { count, role } }),
-  getMetrics: (id: string) => api.get(`/agents/${id}/metrics`),
-  getScalingMetrics: () => api.get('/agents/scaling/metrics'),
-  getLoadMetrics: () => api.get('/agents/load/metrics'),
+  get: (id: string) => api.get(`/api/agents/${id}`),
+  create: (data: any) => api.post('/api/agents/', data),
+  update: (id: string, data: any) => api.put(`/api/agents/${id}`, data),
+  delete: (id: string) => api.delete(`/api/agents/${id}`),
+  clone: (id: string, newName: string) => api.post(`/api/agents/${id}/clone`, null, { params: { new_name: newName } }),
+  execute: (id: string, data: any) => api.post(`/api/agents/${id}/execute`, data),
+  scaleUp: (count: number, role: string) => api.post('/api/agents/scale-up', null, { params: { count, role } }),
+  getMetrics: (id: string) => api.get(`/api/agents/${id}/metrics`),
+  getScalingMetrics: () => api.get('/api/agents/scaling/metrics'),
+  getLoadMetrics: () => api.get('/api/agents/load/metrics'),
 }
 
 // Skills API
 export const skillsApi = {
   list: async () => {
-    const res = await api.get('/skills/')
+    const res = await api.get('/api/skills/')
     return { ...res, data: ensureArray(res.data) }
   },
-  get: (id: string) => api.get(`/skills/${id}`),
-  create: (data: any) => api.post('/skills/', data),
-  update: (id: string, data: any) => api.put(`/skills/${id}`, data),
-  delete: (id: string) => api.delete(`/skills/${id}`),
-  execute: (id: string, data: any) => api.post(`/skills/${id}/execute`, data),
+  get: (id: string) => api.get(`/api/skills/${id}`),
+  create: (data: any) => api.post('/api/skills/', data),
+  update: (id: string, data: any) => api.put(`/api/skills/${id}`, data),
+  delete: (id: string) => api.delete(`/api/skills/${id}`),
+  execute: (id: string, data: any) => api.post(`/api/skills/${id}/execute`, data),
   getCategories: async () => {
-    const res = await api.get('/skills/categories')
+    const res = await api.get('/api/skills/categories')
     return { ...res, data: ensureObject(res.data) }
   },
 }
@@ -67,30 +67,30 @@ export const skillsApi = {
 // Training API
 export const trainingApi = {
   getDatasets: async () => {
-    const res = await api.get('/training/datasets')
+    const res = await api.get('/api/training/datasets')
     return { ...res, data: ensureArray(res.data) }
   },
   createDataset: (name: string, description: string = '', type: string = 'conversations') =>
-    api.post('/training/datasets', null, { params: { name, description, dataset_type: type } }),
+    api.post('/api/training/datasets', null, { params: { name, description, dataset_type: type } }),
   getFeedbackStats: async (agentId?: string) => {
-    const res = await api.get('/training/feedback/stats', { params: { agent_id: agentId } })
+    const res = await api.get('/api/training/feedback/stats', { params: { agent_id: agentId } })
     return { ...res, data: ensureObject(res.data) }
   },
-  processFeedback: (limit: number) => api.post('/training/feedback/process', null, { params: { limit } }),
-  getMemory: (agentId: string) => api.get(`/training/memory/${agentId}`),
+  processFeedback: (limit: number) => api.post('/api/training/feedback/process', null, { params: { limit } }),
+  getMemory: (agentId: string) => api.get(`/api/training/memory/${agentId}`),
   getStats: async () => {
-    const res = await api.get('/training/stats')
+    const res = await api.get('/api/training/stats')
     return { ...res, data: ensureObject(res.data) }
   },
 }
 
 // Health API
 export const healthApi = {
-  check: () => api.get('/health/'),
-  getMetrics: () => api.get('/health/metrics'),
-  getCosts: () => api.get('/health/costs'),
-  getSecurity: () => api.get('/health/security'),
-  getAlerts: () => api.get('/health/alerts'),
+  check: () => api.get('/api/health/'),
+  getMetrics: () => api.get('/api/health/metrics'),
+  getCosts: () => api.get('/api/health/costs'),
+  getSecurity: () => api.get('/api/health/security'),
+  getAlerts: () => api.get('/api/health/alerts'),
 }
 
 export default api
