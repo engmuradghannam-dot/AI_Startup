@@ -11,6 +11,10 @@ import {
   Menu,
   X,
   Brain,
+  Database,
+  GraduationCap,
+  Bell,
+  Plug,
 } from 'lucide-react'
 
 const navigation = [
@@ -20,6 +24,10 @@ const navigation = [
   { name: 'Board Meeting', href: '/board', icon: UsersRound },
   { name: 'Skills', href: '/skills', icon: Zap },
   { name: 'Training', href: '/training', icon: BookOpen },
+  { name: 'Memory', href: '/memory', icon: Database },
+  { name: 'Learning', href: '/learning', icon: GraduationCap },
+  { name: 'Notifications', href: '/notifications', icon: Bell },
+  { name: 'Integrations', href: '/integrations', icon: Plug },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
@@ -77,7 +85,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Brain className="w-8 h-8 text-primary-600" />
             <span className="ml-3 text-xl font-bold text-gray-900">AI Startup</span>
           </div>
-          <nav className="flex-1 px-4 py-4 space-y-1">
+          <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
             {navigation.map((item) => {
               const Icon = item.icon
               return (
@@ -98,8 +106,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </nav>
           <div className="p-4 border-t border-gray-200">
             <div className="text-xs text-gray-500">
-              <p>v2.1.0</p>
-              <p>Multi-AI Board</p>
+              <p>v3.0.0</p>
+              <p>Multi-Agent AI System</p>
             </div>
           </div>
         </div>

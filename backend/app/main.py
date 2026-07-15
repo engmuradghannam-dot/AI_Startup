@@ -49,6 +49,38 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Multi-agent initialization: {e}")
 
+    # Initialize advanced memory system
+    try:
+        from app.services.advanced_memory import get_memory_system
+        memory_system = await get_memory_system()
+        logger.info("Advanced Memory System initialized")
+    except Exception as e:
+        logger.warning(f"Memory system initialization: {e}")
+
+    # Initialize self-learning system
+    try:
+        from app.services.self_learning import get_learning_system
+        learning_system = await get_learning_system()
+        logger.info("Self-Learning System initialized")
+    except Exception as e:
+        logger.warning(f"Learning system initialization: {e}")
+
+    # Initialize notification system
+    try:
+        from app.services.notification_system import get_notification_system
+        notification_system = await get_notification_system()
+        logger.info("Notification & Monitoring System initialized")
+    except Exception as e:
+        logger.warning(f"Notification system initialization: {e}")
+
+    # Initialize integration manager
+    try:
+        from app.services.integration_manager import get_integration_manager
+        integration_manager = await get_integration_manager()
+        logger.info("External Integration Manager initialized")
+    except Exception as e:
+        logger.warning(f"Integration manager initialization: {e}")
+
     yield
     logger.info("AI Startup Server Shutting down...")
 
@@ -144,7 +176,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Import all routers
 try:
-    from app.routers import agents, skills, health, training, voice, ai_chat, local_llm
+    from app.routers import agents, skills, health, training, voice, ai_chat, local_llm, memory, learning, notifications, integrations
 
     app.include_router(agents.router, prefix="/api")
     app.include_router(skills.router, prefix="/api")
@@ -153,6 +185,10 @@ try:
     app.include_router(voice.router, prefix="/api")
     app.include_router(ai_chat.router, prefix="/api")
     app.include_router(local_llm.router, prefix="/api")
+    app.include_router(memory.router, prefix="/api")
+    app.include_router(learning.router, prefix="/api")
+    app.include_router(notifications.router, prefix="/api")
+    app.include_router(integrations.router, prefix="/api")
 
     logger.info("All API routers registered successfully")
 

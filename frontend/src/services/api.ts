@@ -227,3 +227,207 @@ export default {
   training: trainingApi,
   voice: voiceApi,
 }
+
+// ============================================
+// MEMORY API
+// ============================================
+export const memoryApi = {
+  store: async (data: any) => {
+    const res = await api.post('/api/memory/store', data)
+    return res.data
+  },
+  search: async (data: any) => {
+    const res = await api.post('/api/memory/search', data)
+    return ensureArray(res.data)
+  },
+  getAgentMemories: async (agentId: string, memoryType?: string, limit?: number) => {
+    const params = new URLSearchParams()
+    if (memoryType) params.append('memory_type', memoryType)
+    if (limit) params.append('limit', limit.toString())
+    const res = await api.get(`/api/memory/agent/${agentId}?${params.toString()}`)
+    return ensureArray(res.data)
+  },
+  getStats: async (agentId: string) => {
+    const res = await api.get(`/api/memory/stats/${agentId}`)
+    return res.data
+  },
+  consolidate: async (agentId: string) => {
+    const res = await api.post(`/api/memory/consolidate/${agentId}`)
+    return res.data
+  },
+  export: async (agentId: string) => {
+    const res = await api.post(`/api/memory/export/${agentId}`)
+    return res.data
+  },
+  import: async (agentId: string, memories: any[]) => {
+    const res = await api.post(`/api/memory/import/${agentId}`, memories)
+    return res.data
+  },
+}
+
+// ============================================
+// LEARNING API
+// ============================================
+export const learningApi = {
+  submitFeedback: async (data: any) => {
+    const res = await api.post('/api/learning/feedback', data)
+    return res.data
+  },
+  getStats: async (agentId: string) => {
+    const res = await api.get(`/api/learning/stats/${agentId}`)
+    return res.data
+  },
+  triggerLearning: async (agentId: string) => {
+    const res = await api.post(`/api/learning/learn/${agentId}`)
+    return res.data
+  },
+  exportKnowledge: async (agentId: string) => {
+    const res = await api.get(`/api/learning/export/${agentId}`)
+    return res.data
+  },
+  importKnowledge: async (agentId: string, knowledge: any) => {
+    const res = await api.post(`/api/learning/import/${agentId}`, knowledge)
+    return res.data
+  },
+  getPatterns: async (agentId: string, patternType?: string) => {
+    const params = patternType ? `?pattern_type=${patternType}` : ''
+    const res = await api.get(`/api/learning/patterns/${agentId}${params}`)
+    return res.data
+  },
+}
+
+// ============================================
+// NOTIFICATIONS API
+// ============================================
+export const notificationsApi = {
+  list: async (filters: any = {}) => {
+    const params = new URLSearchParams()
+    if (filters.unread_only) params.append('unread_only', 'true')
+    if (filters.type) params.append('notification_type', filters.type)
+    if (filters.priority) params.append('priority', filters.priority)
+    if (filters.limit) params.append('limit', filters.limit.toString())
+    const res = await api.get(`/api/notifications/?${params.toString()}`)
+    return ensureArray(res.data)
+  },
+  create: async (data: any) => {
+    const res = await api.post('/api/notifications/', data)
+    return res.data
+  },
+  markAsRead: async (id: string) => {
+    const res = await api.post(`/api/notifications/${id}/read`)
+    return res.data
+  },
+  dismiss: async (id: string) => {
+    const res = await api.post(`/api/notifications/${id}/dismiss`)
+    return res.data
+  },
+  clearAll: async () => {
+    const res = await api.delete('/api/notifications/')
+    return res.data
+  },
+  getMetrics: async () => {
+    const res = await api.get('/api/notifications/metrics')
+    return res.data
+  },
+  getMetricHistory: async (metricName: string, hours?: number) => {
+    const params = hours ? `?hours=${hours}` : ''
+    const res = await api.get(`/api/notifications/metrics/${metricName}${params}`)
+    return res.data
+  },
+  recordMetric: async (name: string, value: number, unit?: string, thresholdHigh?: number, thresholdLow?: number) => {
+    const res = await api.post('/api/notifications/metrics/record', null, {
+      params: { name, value, unit, threshold_high: thresholdHigh, threshold_low: thresholdLow }
+    })
+    return res.data
+  },
+  addAlertRule: async (data: any) => {
+    const res = await api.post('/api/notifications/alert-rules', data)
+    return res.data
+  },
+  getSystemHealth: async () => {
+    const res = await api.get('/api/notifications/system/health')
+    return res.data
+  },
+  getUnreadCount: async () => {
+    const res = await api.get('/api/notifications/unread-count')
+    return res.data
+  },
+}
+
+// ============================================
+// INTEGRATIONS API
+// ============================================
+export const integrationsApi = {
+  list: async (filters: any = {}) => {
+    const params = new URLSearchParams()
+    if (filters.type) params.append('integration_type', filters.type)
+    if (filters.status) params.append('status', filters.status)
+    const res = await api.get(`/api/integrations/?${params.toString()}`)
+    return ensureArray(res.data)
+  },
+  create: async (data: any) => {
+    const res = await api.post('/api/integrations/', data)
+    return res.data
+  },
+  get: async (id: string) => {
+    const res = await api.get(`/api/integrations/${id}`)
+    return res.data
+  },
+  update: async (id: string, data: any) => {
+    const res = await api.patch(`/api/integrations/${id}`, data)
+    return res.data
+  },
+  delete: async (id: string) => {
+    const res = await api.delete(`/api/integrations/${id}`)
+    return res.data
+  },
+  createApiKey: async (integrationId: string, data: any) => {
+    const res = await api.post(`/api/integrations/${integrationId}/api-keys`, data)
+    return res.data
+  },
+  listApiKeys: async (integrationId: string) => {
+    const res = await api.get(`/api/integrations/${integrationId}/api-keys`)
+    return ensureArray(res.data)
+  },
+  revokeApiKey: async (integrationId: string, keyId: string) => {
+    const res = await api.delete(`/api/integrations/${integrationId}/api-keys/${keyId}`)
+    return res.data
+  },
+  createWebhook: async (integrationId: string, data: any) => {
+    const res = await api.post(`/api/integrations/${integrationId}/webhooks`, data)
+    return res.data
+  },
+  listWebhooks: async (integrationId: string) => {
+    const res = await api.get(`/api/integrations/${integrationId}/webhooks`)
+    return ensureArray(res.data)
+  },
+  deleteWebhook: async (integrationId: string, webhookId: string) => {
+    const res = await api.delete(`/api/integrations/${integrationId}/webhooks/${webhookId}`)
+    return res.data
+  },
+  getAvailableEvents: async () => {
+    const res = await api.get('/api/integrations/events/available')
+    return ensureArray(res.data)
+  },
+  validateApiKey: async (apiKey: string) => {
+    const res = await api.post('/api/integrations/validate-key', null, {
+      headers: { 'X-API-Key': apiKey }
+    })
+    return res.data
+  },
+}
+
+// Export all APIs
+export default {
+  agents: agentsApi,
+  aiChat: aiChatApi,
+  localLlm: localLlmApi,
+  skills: skillsApi,
+  health: healthApi,
+  training: trainingApi,
+  voice: voiceApi,
+  memory: memoryApi,
+  learning: learningApi,
+  notifications: notificationsApi,
+  integrations: integrationsApi,
+}
