@@ -1,12 +1,19 @@
-"""Training and memory API routes."""
+"""Training and memory API routes - Enhanced with Agent Learning."""
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
+from datetime import datetime
+import uuid
+import json
 
 from app.models.memory import TrainingDataset, MemoryEntry, FeedbackEntry, MemoryType
 from app.services.feedback_loop import get_feedback_loop
 from app.services.knowledge_graph import get_knowledge_graph_service
 
 router = APIRouter(prefix="/training", tags=["Training"])
+
+# In-memory storage for when DB is not available
+_learning_sessions = {}
+_agent_knowledge = {}
 
 
 @router.post("/datasets")
@@ -21,8 +28,8 @@ async def create_dataset(name: str, description: str = "", dataset_type: str = "
         await dataset.insert()
         return {"id": str(dataset.id), "name": name}
     except Exception as e:
-        import uuid
-        return {"id": str(uuid.uuid4()), "name": name, "status": "created_mock"}
+        dataset_id = str(uuid.uuid4())
+        return {"id": dataset_id, "name": name, "status": "created_mock"}
 
 
 @router.get("/datasets")
@@ -41,7 +48,6 @@ async def list_datasets(limit: int = Query(100, ge=1, le=1000)):
             for d in datasets
         ]
     except Exception as e:
-        # Return empty array if DB is not available
         return []
 
 
@@ -86,7 +92,6 @@ async def submit_feedback(
         )
         return {"id": str(feedback.id), "status": "submitted"}
     except Exception as e:
-        import uuid
         return {"id": str(uuid.uuid4()), "status": "submitted_mock"}
 
 
@@ -136,7 +141,6 @@ async def get_agent_memory(agent_id: str, memory_type: Optional[MemoryType] = No
             for m in memories
         ]
     except Exception as e:
-        # Return empty array if DB is not available
         return []
 
 
@@ -161,3 +165,200 @@ async def get_training_stats():
             "feedback": 0,
             "status": "limited_mode",
         }
+
+
+# ============================================
+# NEW: Agent Learning System
+# ============================================
+
+@router.post("/learn")
+async def train_agent(
+    agent_id: str = Form(...),
+    content: str = Form(...),
+    content_type: str = Form("text"),  # text, image, video, document
+    source: str = Form("manual"),  # manual, conversation, file, screen
+    tags: str = Form(""),
+):
+    """Train an agent with new knowledge."""
+    try:
+        entry = {
+            "id": str(uuid.uuid4()),
+            "agent_id": agent_id,
+            "content": content,
+            "content_type": content_type,
+            "source": source,
+            "tags": tags.split(",") if tags else [],
+            "timestamp": datetime.utcnow().isoformat(),
+            "learned": True,
+        }
+
+        # Store in agent knowledge base
+        if agent_id not in _agent_knowledge:
+            _agent_knowledge[agent_id] = []
+        _agent_knowledge[agent_id].append(entry)
+
+        return {
+            "status": "learned",
+            "entry_id": entry["id"],
+            "agent_id": agent_id,
+            "knowledge_size": len(_agent_knowledge[agent_id]),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/learn/{agent_id}")
+async def get_agent_knowledge(agent_id: str, query: Optional[str] = None):
+    """Get all knowledge for an agent."""
+    knowledge = _agent_knowledge.get(agent_id, [])
+
+    if query:
+        knowledge = [k for k in knowledge if query.lower() in k["content"].lower()]
+
+    return {
+        "agent_id": agent_id,
+        "knowledge_count": len(knowledge),
+        "knowledge": knowledge[-50:],  # Return last 50 entries
+    }
+
+
+@router.post("/learn/from-chat")
+async def learn_from_chat(
+    agent_id: str = Form(...),
+    conversation: str = Form(...),
+    user_feedback: Optional[int] = Form(None),
+):
+    """Learn from chat conversation."""
+    try:
+        entry = {
+            "id": str(uuid.uuid4()),
+            "agent_id": agent_id,
+            "content": conversation,
+            "content_type": "conversation",
+            "source": "chat",
+            "user_feedback": user_feedback,
+            "timestamp": datetime.utcnow().isoformat(),
+            "learned": True,
+        }
+
+        if agent_id not in _agent_knowledge:
+            _agent_knowledge[agent_id] = []
+        _agent_knowledge[agent_id].append(entry)
+
+        return {
+            "status": "learned_from_chat",
+            "entry_id": entry["id"],
+            "agent_id": agent_id,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.post("/learn/screen")
+async def learn_from_screen(
+    agent_id: str = Form(...),
+    description: str = Form(...),
+    screen_data: Optional[str] = Form(None),
+):
+    """Learn from screen capture."""
+    try:
+        entry = {
+            "id": str(uuid.uuid4()),
+            "agent_id": agent_id,
+            "content": description,
+            "content_type": "screen",
+            "source": "screen_capture",
+            "screen_data": screen_data,
+            "timestamp": datetime.utcnow().isoformat(),
+            "learned": True,
+        }
+
+        if agent_id not in _agent_knowledge:
+            _agent_knowledge[agent_id] = []
+        _agent_knowledge[agent_id].append(entry)
+
+        return {
+            "status": "learned_from_screen",
+            "entry_id": entry["id"],
+            "agent_id": agent_id,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.delete("/learn/{agent_id}/{entry_id}")
+async def delete_knowledge(agent_id: str, entry_id: str):
+    """Delete a knowledge entry."""
+    if agent_id in _agent_knowledge:
+        _agent_knowledge[agent_id] = [
+            k for k in _agent_knowledge[agent_id] if k["id"] != entry_id
+        ]
+        return {"status": "deleted", "agent_id": agent_id}
+    return {"status": "not_found", "agent_id": agent_id}
+
+
+# ============================================
+# NEW: File Upload for Attachments
+# ============================================
+
+@router.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    agent_id: str = Form(...),
+    description: str = Form(""),
+):
+    """Upload a file (image, video, document) for agent learning."""
+    try:
+        content = await file.read()
+        file_size = len(content)
+
+        # Determine file type
+        content_type = file.content_type or "application/octet-stream"
+        if content_type.startswith("image/"):
+            file_type = "image"
+        elif content_type.startswith("video/"):
+            file_type = "video"
+        elif content_type.startswith("audio/"):
+            file_type = "audio"
+        else:
+            file_type = "document"
+
+        entry = {
+            "id": str(uuid.uuid4()),
+            "agent_id": agent_id,
+            "filename": file.filename,
+            "file_type": file_type,
+            "content_type": content_type,
+            "file_size": file_size,
+            "description": description,
+            "timestamp": datetime.utcnow().isoformat(),
+            "learned": True,
+        }
+
+        if agent_id not in _agent_knowledge:
+            _agent_knowledge[agent_id] = []
+        _agent_knowledge[agent_id].append(entry)
+
+        return {
+            "status": "uploaded",
+            "entry_id": entry["id"],
+            "agent_id": agent_id,
+            "file_type": file_type,
+            "file_size": file_size,
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/uploads/{agent_id}")
+async def get_agent_uploads(agent_id: str):
+    """Get all uploaded files for an agent."""
+    uploads = [
+        k for k in _agent_knowledge.get(agent_id, [])
+        if k.get("file_type") in ["image", "video", "audio", "document"]
+    ]
+    return {
+        "agent_id": agent_id,
+        "upload_count": len(uploads),
+        "uploads": uploads,
+    }
