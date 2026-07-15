@@ -74,3 +74,27 @@ async def health_security():
         "last_scan": time.time(),
         "security_score": 100,
     }
+
+
+@router.get("/groq-status")
+async def groq_status():
+    """Check Groq API status and validate API key."""
+    from app.services.groq_service import get_groq_service
+
+    try:
+        groq = await get_groq_service()
+        validation = await groq.validate_api_key()
+        return {
+            "status": "ok" if validation["valid"] else "error",
+            "message": validation["message"],
+            "models_count": validation.get("models_count", 0),
+            "api_key_set": bool(groq.settings.GROQ_API_KEY and groq.settings.GROQ_API_KEY != "your_groq_api_key_here"),
+            "base_url": groq.settings.GROQ_BASE_URL,
+            "default_model": groq.settings.GROQ_DEFAULT_MODEL,
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "api_key_set": False,
+        }

@@ -26,6 +26,29 @@ class GroqService:
         self._token_count = 0
         self._cost_estimate = 0.0
 
+
+    async def validate_api_key(self) -> Dict[str, Any]:
+        """Validate the Groq API key by fetching available models."""
+        try:
+            response = await self.client.get("/models")
+            response.raise_for_status()
+            models = response.json()
+            return {
+                "valid": True,
+                "models_count": len(models.get("data", [])),
+                "message": "API key is valid",
+            }
+        except httpx.HTTPStatusError as e:
+            return {
+                "valid": False,
+                "status_code": e.response.status_code,
+                "message": f"API key validation failed: {e.response.status_code}",
+            }
+        except Exception as e:
+            return {
+                "valid": False,
+                "message": f"API key validation error: {str(e)}",
+            }
     async def chat_completion(
         self,
         messages: List[Dict[str, str]],
