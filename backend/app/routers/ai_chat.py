@@ -82,7 +82,6 @@ AI_PROVIDERS = {
         "header_format": "bearer",
         "enabled": True,
     },
-    # FREE FALLBACK: OpenRouter (free tier available)
     "openrouter": {
         "name": "OpenRouter (Free Tier)",
         "base_url": "https://openrouter.ai/api/v1",
@@ -92,7 +91,6 @@ AI_PROVIDERS = {
         "enabled": True,
         "free": True,
     },
-    # FREE FALLBACK: AI21
     "ai21": {
         "name": "AI21 Labs",
         "base_url": "https://api.ai21.com/studio/v1",
@@ -110,31 +108,31 @@ def get_api_key_for_provider(provider_id: str, request_api_key: Optional[str] = 
         return request_api_key
 
     provider_config = AI_PROVIDERS.get(provider_id)
-    if not provider_config:
-        return ""
-
-    for env_key in provider_config["env_keys"]:
-        key = os.getenv(env_key)
-        if key:
-            return key
+    if provider_config:
+        for env_key in provider_config["env_keys"]:
+            key = os.getenv(env_key)
+            if key and len(key) > 10:
+                return key
 
     return ""
 
 
 def get_working_provider(preferred: str = "groq") -> tuple:
     """Find a working provider with valid API key."""
-    # First try preferred
     if preferred in AI_PROVIDERS:
         key = get_api_key_for_provider(preferred)
         if key:
             return preferred, key
 
-    # Try all providers in order
-    for provider_id, config in AI_PROVIDERS.items():
+    provider_order = ["openrouter", "groq", "google", "ai21", "openai", "anthropic", "mistral", "cohere", "grok", "kimi", "chatgpt"]
+    for provider_id in provider_order:
+        if provider_id not in AI_PROVIDERS:
+            continue
+        config = AI_PROVIDERS[provider_id]
         if not config.get("enabled", True):
             continue
         key = get_api_key_for_provider(provider_id)
-        if key:
+        if key and len(key) > 10:
             return provider_id, key
 
     return None, ""
@@ -146,7 +144,7 @@ class ChatRequest(BaseModel):
     messages: List[dict]
     agent_name: str = "AI Agent"
     api_key: Optional[str] = None
-    auto_fallback: bool = True  # Try other providers if preferred fails
+    auto_fallback: bool = True
 
 
 @router.get("/providers")
@@ -173,7 +171,6 @@ async def call_openai_compatible(client: httpx.AsyncClient, provider_id: str, pr
         "Content-Type": "application/json",
     }
 
-    # OpenRouter needs extra headers
     if provider_id == "openrouter":
         headers["HTTP-Referer"] = "https://ai-startup.app"
         headers["X-Title"] = "AI Startup"
@@ -203,7 +200,7 @@ async def call_openai_compatible(client: httpx.AsyncClient, provider_id: str, pr
             }
         elif response.status_code == 401:
             return {
-                "response": None,  # Signal to try fallback
+                "response": None,
                 "error": f"401 Unauthorized - {provider_config['name']}",
                 "fallback": True,
             }
@@ -232,26 +229,22 @@ async def chat(request: ChatRequest):
         agent_name = request.agent_name
         auto_fallback = request.auto_fallback
 
-        # Get API key for preferred provider
         api_key = get_api_key_for_provider(provider_id, request.api_key)
 
-        # If no key for preferred, try auto-fallback to any working provider
         if not api_key and auto_fallback:
             fallback_provider, fallback_key = get_working_provider()
             if fallback_provider:
                 provider_id = fallback_provider
                 api_key = fallback_key
-                model = AI_PROVIDERS[fallback_provider]["models"][0]  # Use first available model
+                model = AI_PROVIDERS[fallback_provider]["models"][0]
 
         if not api_key:
-            provider_config = AI_PROVIDERS.get(provider_id)
-            env_keys_str = ", ".join(provider_config["env_keys"]) if provider_config else "GROQ_API_KEY"
             return {
-                "response": f"{agent_name}: No API key found. Please add one of these environment variables in Railway: {env_keys_str}. Or use OpenRouter (free) by setting OPENROUTER_API_KEY.",
+                "response": f"{agent_name}: No API key found. Please add one of these environment variables in Railway: GROQ_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY, or OPENROUTER_API_KEY. You can get free keys from: Groq (groq.com), OpenRouter (openrouter.ai), or Google AI Studio.",
                 "provider": provider_id,
                 "model": model,
                 "mock": True,
-                "error": f"No API key. Set env var: {env_keys_str}",
+                "error": "No API key found",
             }
 
         provider_config = AI_PROVIDERS.get(provider_id)
@@ -264,13 +257,10 @@ async def chat(request: ChatRequest):
                 "error": "Unknown provider",
             }
 
-        # Call the AI API
         async with httpx.AsyncClient(timeout=60.0) as client:
-            # OpenAI-compatible providers
             if provider_id in ["groq", "openai", "chatgpt", "mistral", "grok", "kimi", "cohere", "openrouter", "ai21"]:
                 result = await call_openai_compatible(client, provider_id, provider_config, api_key, model, messages, agent_name)
 
-                # If failed and auto_fallback enabled, try other providers
                 if result.get("fallback") and auto_fallback:
                     tried = [provider_id]
                     for fallback_id, fallback_config in AI_PROVIDERS.items():
@@ -292,7 +282,6 @@ async def chat(request: ChatRequest):
 
                         tried.append(fallback_id)
 
-                    # All providers failed
                     return {
                         "response": f"{agent_name}: All AI providers failed. Last error: {result.get('error', 'Unknown')}. Please check your API keys in Railway Settings > Variables.",
                         "provider": provider_id,
