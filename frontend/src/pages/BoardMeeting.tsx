@@ -34,6 +34,7 @@ const AGENT_PROVIDERS = [
   { provider: 'google', model: 'gemini-1.5-pro', icon: '🔮' },
   { provider: 'cohere', model: 'command-r-plus', icon: '📊' },
   { provider: 'mistral', model: 'mistral-large-latest', icon: '🌊' },
+  { provider: 'kimi', model: 'kimi-k2', icon: '🌙' },
 ]
 
 interface BoardMessage {
@@ -215,9 +216,7 @@ export default function BoardMeeting() {
 
     if (workingProvider) {
       try {
-        const allOpinions = successfulResponses.map(r => `${r.agentName} (${r.provider}): ${r.content}`).join('
-
-')
+        const allOpinions = successfulResponses.map(r => `${r.agentName} (${r.provider}): ${r.content}`).join('\n\n')
 
         const response = await axios.post('/ai-chat/chat', {
           provider: workingProvider.id,
@@ -267,8 +266,7 @@ Provide a consensus decision:` },
       icon: '🤝',
       content: `Board Meeting Results:
 
-${successfulResponses.map(r => `✅ ${r.agentName} (${r.provider}): Agreed`).join('
-')}
+${successfulResponses.map(r => `✅ ${r.agentName} (${r.provider}): Agreed`).join('\n')}
 
 All participating agents have provided their input.`,
       role: 'consensus',

@@ -87,6 +87,15 @@ const DEFAULT_PROVIDERS: AIProvider[] = [
     models: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'],
     isActive: false,
   },
+  {
+    id: 'kimi',
+    name: 'KIMI (Moonshot AI)',
+    keyName: 'KIMI_API_KEY',
+    keyValue: '',
+    baseUrl: 'https://api.moonshot.cn/v1',
+    models: ['kimi-k2', 'kimi-k1.5', 'kimi-moonshot-v1-8k'],
+    isActive: false,
+  },
 ]
 
 // Storage helpers

@@ -50,6 +50,11 @@ AI_PROVIDERS = {
         "base_url": "https://api.mistral.ai/v1",
         "models": ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"],
     },
+    "kimi": {
+        "name": "KIMI (Moonshot AI)",
+        "base_url": "https://api.moonshot.cn/v1",
+        "models": ["kimi-k2", "kimi-k1.5", "kimi-moonshot-v1-8k"],
+    },
 }
 
 
@@ -106,7 +111,7 @@ async def chat(request: ChatRequest):
 
         # Call the AI API
         async with httpx.AsyncClient(timeout=60.0) as client:
-            if provider_id in ["groq", "openai", "chatgpt", "mistral", "grok"]:
+            if provider_id in ["groq", "openai", "chatgpt", "mistral", "grok", "kimi"]:
                 # OpenAI-compatible API
                 headers = {
                     "Authorization": f"Bearer {api_key}",
