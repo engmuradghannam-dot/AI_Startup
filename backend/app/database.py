@@ -6,8 +6,8 @@ from app.models.agent import Agent
 from app.models.skill import Skill
 from app.models.memory import TrainingDataset, MemoryEntry, FeedbackEntry
 from app.models.task import Task
+from app.routers.settings_api import AIProviderDocument
 
-# Global client
 _client = None
 
 
@@ -31,14 +31,12 @@ async def init_db():
         mongodb_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
         _client = AsyncIOMotorClient(mongodb_uri, serverSelectionTimeoutMS=5000)
 
-        # Test connection
         await _client.admin.command('ping')
         print("✅ MongoDB connected successfully")
 
         database_name = os.getenv("DATABASE_NAME", "ai_startup")
         db = _client[database_name]
 
-        # Initialize Beanie with all models
         await init_beanie(
             database=db,
             document_models=[
@@ -48,6 +46,7 @@ async def init_db():
                 MemoryEntry,
                 FeedbackEntry,
                 Task,
+                AIProviderDocument,
             ]
         )
         print("✅ Beanie ODM initialized")

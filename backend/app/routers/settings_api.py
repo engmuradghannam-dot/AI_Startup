@@ -3,8 +3,28 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 import os
+import httpx
+from beanie import Document, Indexed
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
+
+
+# ========== Beanie Document Model ==========
+
+class AIProviderDocument(Document):
+    """MongoDB document for AI provider settings."""
+
+    provider_id: Indexed(str, unique=True)
+    name: str
+    api_key: str = ""
+    base_url: str = ""
+    default_model: str = ""
+    is_active: bool = False
+    temperature: float = 0.7
+    max_tokens: int = 2048
+
+    class Settings:
+        name = "ai_provider_settings"
 
 
 # ========== Pydantic Models ==========
@@ -20,211 +40,217 @@ class AIProviderConfig(BaseModel):
     max_tokens: int = 2048
 
 
-class SettingsResponse(BaseModel):
-    providers: List[AIProviderConfig]
-    active_provider: Optional[str] = None
-    llm_mode: str = "auto"
-
-
 class UpdateProviderRequest(BaseModel):
-    api_key: str
+    api_key: Optional[str] = None
     base_url: Optional[str] = None
     default_model: Optional[str] = None
-    is_active: bool = False
+    is_active: Optional[bool] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
 
 
-# ========== In-memory storage (replace with DB in production) ==========
+# ========== Default Providers ==========
 
-_default_providers = {
+DEFAULT_PROVIDERS = {
     "groq": {
-        "id": "groq",
+        "provider_id": "groq",
         "name": "Groq",
         "api_key": os.getenv("GROQ_API_KEY", ""),
         "base_url": "https://api.groq.com/openai/v1",
         "default_model": "llama-3.1-70b-versatile",
         "is_active": bool(os.getenv("GROQ_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "openai": {
-        "id": "openai",
+        "provider_id": "openai",
         "name": "OpenAI",
         "api_key": os.getenv("OPENAI_API_KEY", ""),
         "base_url": "https://api.openai.com/v1",
         "default_model": "gpt-4o",
         "is_active": bool(os.getenv("OPENAI_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "google": {
-        "id": "google",
+        "provider_id": "google",
         "name": "Google Gemini",
         "api_key": os.getenv("GOOGLE_API_KEY", ""),
         "base_url": "https://generativelanguage.googleapis.com/v1",
         "default_model": "gemini-1.5-pro",
         "is_active": bool(os.getenv("GOOGLE_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "anthropic": {
-        "id": "anthropic",
+        "provider_id": "anthropic",
         "name": "Anthropic Claude",
         "api_key": os.getenv("ANTHROPIC_API_KEY", ""),
         "base_url": "https://api.anthropic.com/v1",
         "default_model": "claude-3-5-sonnet-20241022",
         "is_active": bool(os.getenv("ANTHROPIC_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "mistral": {
-        "id": "mistral",
+        "provider_id": "mistral",
         "name": "Mistral AI",
         "api_key": os.getenv("MISTRAL_API_KEY", ""),
         "base_url": "https://api.mistral.ai/v1",
         "default_model": "mistral-large-latest",
         "is_active": bool(os.getenv("MISTRAL_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "cohere": {
-        "id": "cohere",
+        "provider_id": "cohere",
         "name": "Cohere",
         "api_key": os.getenv("COHERE_API_KEY", ""),
         "base_url": "https://api.cohere.com/v1",
         "default_model": "command-r-plus",
         "is_active": bool(os.getenv("COHERE_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "ollama": {
-        "id": "ollama",
+        "provider_id": "ollama",
         "name": "Ollama (Local)",
         "api_key": "local",
         "base_url": os.getenv("OLLAMA_HOST", "http://localhost:11434"),
         "default_model": "llama3",
         "is_active": False,
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "huggingface": {
-        "id": "huggingface",
+        "provider_id": "huggingface",
         "name": "Hugging Face (FREE)",
         "api_key": os.getenv("HF_API_KEY", ""),
         "base_url": "https://api-inference.huggingface.co/models",
         "default_model": "mistralai/Mistral-7B-Instruct-v0.2",
         "is_active": bool(os.getenv("HF_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "openrouter": {
-        "id": "openrouter",
+        "provider_id": "openrouter",
         "name": "OpenRouter",
         "api_key": os.getenv("OPENROUTER_API_KEY", ""),
         "base_url": "https://openrouter.ai/api/v1",
         "default_model": "meta-llama/llama-3.1-70b-instruct:free",
         "is_active": bool(os.getenv("OPENROUTER_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "xai": {
-        "id": "xai",
+        "provider_id": "xai",
         "name": "xAI (Grok)",
         "api_key": os.getenv("XAI_API_KEY", ""),
         "base_url": "https://api.x.ai/v1",
         "default_model": "grok-beta",
         "is_active": bool(os.getenv("XAI_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
     "kimi": {
-        "id": "kimi",
+        "provider_id": "kimi",
         "name": "KIMI (Moonshot)",
         "api_key": os.getenv("KIMI_API_KEY", ""),
         "base_url": "https://api.moonshot.cn/v1",
         "default_model": "moonshot-v1-8k",
         "is_active": bool(os.getenv("KIMI_API_KEY", "")),
-        "temperature": 0.7,
-        "max_tokens": 2048,
     },
 }
 
-_providers: Dict[str, dict] = dict(_default_providers)
-_active_provider: Optional[str] = None
-_llm_mode: str = "auto"
 
-
-def _get_active_provider_id() -> Optional[str]:
-    """Get the first active provider."""
-    global _active_provider
-    if _active_provider and _providers.get(_active_provider, {}).get("is_active"):
-        return _active_provider
-    for pid, provider in _providers.items():
-        if provider.get("is_active") and provider.get("api_key"):
-            _active_provider = pid
-            return pid
-    return None
+async def init_default_providers():
+    """Initialize default providers in MongoDB if they don't exist."""
+    for provider_data in DEFAULT_PROVIDERS.values():
+        existing = await AIProviderDocument.find_one(
+            AIProviderDocument.provider_id == provider_data["provider_id"]
+        )
+        if not existing:
+            await AIProviderDocument(**provider_data).insert()
 
 
 # ========== Routes ==========
 
+@router.on_event("startup")
+async def startup():
+    """Initialize default providers on startup."""
+    await init_default_providers()
+
+
 @router.get("/providers", response_model=List[AIProviderConfig])
 async def get_providers():
-    """Get all AI provider configurations."""
-    return [AIProviderConfig(**p) for p in _providers.values()]
+    """Get all AI provider configurations from database."""
+    providers = await AIProviderDocument.find_all().to_list()
+    if not providers:
+        await init_default_providers()
+        providers = await AIProviderDocument.find_all().to_list()
+    return [AIProviderConfig(
+        id=p.provider_id,
+        name=p.name,
+        api_key=p.api_key,
+        base_url=p.base_url,
+        default_model=p.default_model,
+        is_active=p.is_active,
+        temperature=p.temperature,
+        max_tokens=p.max_tokens,
+    ) for p in providers]
 
 
 @router.get("/providers/{provider_id}", response_model=AIProviderConfig)
 async def get_provider(provider_id: str):
     """Get a specific provider configuration."""
-    if provider_id not in _providers:
+    provider = await AIProviderDocument.find_one(
+        AIProviderDocument.provider_id == provider_id
+    )
+    if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
-    return AIProviderConfig(**_providers[provider_id])
+    return AIProviderConfig(
+        id=provider.provider_id,
+        name=provider.name,
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        default_model=provider.default_model,
+        is_active=provider.is_active,
+        temperature=provider.temperature,
+        max_tokens=provider.max_tokens,
+    )
 
 
 @router.patch("/providers/{provider_id}", response_model=AIProviderConfig)
 async def update_provider(provider_id: str, request: UpdateProviderRequest):
     """Update a provider configuration."""
-    global _active_provider
-
-    if provider_id not in _providers:
+    provider = await AIProviderDocument.find_one(
+        AIProviderDocument.provider_id == provider_id
+    )
+    if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
 
-    provider = _providers[provider_id]
-
     if request.api_key is not None:
-        provider["api_key"] = request.api_key
+        provider.api_key = request.api_key
     if request.base_url is not None:
-        provider["base_url"] = request.base_url
+        provider.base_url = request.base_url
     if request.default_model is not None:
-        provider["default_model"] = request.default_model
+        provider.default_model = request.default_model
     if request.is_active is not None:
-        provider["is_active"] = request.is_active
+        provider.is_active = request.is_active
         if request.is_active:
-            _active_provider = provider_id
-            # Deactivate others if this one is activated
-            for pid, p in _providers.items():
-                if pid != provider_id:
-                    p["is_active"] = False
+            async for p in AIProviderDocument.find_all():
+                if p.provider_id != provider_id:
+                    p.is_active = False
+                    await p.save()
     if request.temperature is not None:
-        provider["temperature"] = request.temperature
+        provider.temperature = request.temperature
     if request.max_tokens is not None:
-        provider["max_tokens"] = request.max_tokens
+        provider.max_tokens = request.max_tokens
 
-    return AIProviderConfig(**provider)
+    await provider.save()
+
+    return AIProviderConfig(
+        id=provider.provider_id,
+        name=provider.name,
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        default_model=provider.default_model,
+        is_active=provider.is_active,
+        temperature=provider.temperature,
+        max_tokens=provider.max_tokens,
+    )
 
 
 @router.post("/providers/{provider_id}/test")
 async def test_provider(provider_id: str):
     """Test a provider connection."""
-    import httpx
-
-    if provider_id not in _providers:
+    provider = await AIProviderDocument.find_one(
+        AIProviderDocument.provider_id == provider_id
+    )
+    if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
 
-    provider = _providers[provider_id]
-    api_key = provider.get("api_key", "")
+    api_key = provider.api_key
 
     if not api_key or api_key == "local":
         return {"success": False, "message": "No API key configured"}
@@ -233,21 +259,21 @@ async def test_provider(provider_id: str):
         async with httpx.AsyncClient(timeout=10.0) as client:
             if provider_id == "groq":
                 response = await client.get(
-                    f"{provider['base_url']}/models",
+                    f"{provider.base_url}/models",
                     headers={"Authorization": f"Bearer {api_key}"}
                 )
             elif provider_id == "openai":
                 response = await client.get(
-                    f"{provider['base_url']}/models",
+                    f"{provider.base_url}/models",
                     headers={"Authorization": f"Bearer {api_key}"}
                 )
             elif provider_id == "google":
                 response = await client.get(
-                    f"{provider['base_url']}/models?key={api_key}"
+                    f"{provider.base_url}/models?key={api_key}"
                 )
             elif provider_id == "anthropic":
                 response = await client.get(
-                    f"{provider['base_url']}/models",
+                    f"{provider.base_url}/models",
                     headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"}
                 )
             else:
@@ -273,26 +299,38 @@ async def test_provider(provider_id: str):
 @router.get("/active-provider")
 async def get_active_provider():
     """Get the currently active provider."""
-    active_id = _get_active_provider_id()
-    if not active_id:
+    active = await AIProviderDocument.find_one(AIProviderDocument.is_active == True)
+    if not active:
         return {"provider": None, "message": "No active provider configured"}
-    return {"provider": AIProviderConfig(**_providers[active_id])}
+    return {
+        "provider": AIProviderConfig(
+            id=active.provider_id,
+            name=active.name,
+            api_key=active.api_key,
+            base_url=active.base_url,
+            default_model=active.default_model,
+            is_active=active.is_active,
+            temperature=active.temperature,
+            max_tokens=active.max_tokens,
+        )
+    }
 
 
 @router.post("/active-provider/{provider_id}")
 async def set_active_provider(provider_id: str):
     """Set the active provider."""
-    global _active_provider
-
-    if provider_id not in _providers:
+    provider = await AIProviderDocument.find_one(
+        AIProviderDocument.provider_id == provider_id
+    )
+    if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
 
-    if not _providers[provider_id].get("api_key"):
-        raise HTTPException(status_code=400, detail="Provider has no API key configured")
+    async for p in AIProviderDocument.find_all():
+        p.is_active = False
+        await p.save()
 
-    _active_provider = provider_id
-    for pid, p in _providers.items():
-        p["is_active"] = (pid == provider_id)
+    provider.is_active = True
+    await provider.save()
 
     return {"message": f"{provider_id} is now the active provider"}
 
@@ -300,14 +338,12 @@ async def set_active_provider(provider_id: str):
 @router.get("/llm-mode")
 async def get_llm_mode():
     """Get current LLM mode."""
-    return {"mode": _llm_mode}
+    return {"mode": "auto"}
 
 
 @router.post("/llm-mode/{mode}")
 async def set_llm_mode(mode: str):
     """Set LLM mode: auto, cloud, local."""
-    global _llm_mode
     if mode not in ["auto", "cloud", "local"]:
         raise HTTPException(status_code=400, detail="Mode must be auto, cloud, or local")
-    _llm_mode = mode
     return {"message": f"LLM mode set to {mode}"}
