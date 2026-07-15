@@ -61,6 +61,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV MONGODB_URI=mongodb+srv://engmuradghannam_db_user:IWqsSLrcTgnwdgpD@cluster0.ouxl0wd.mongodb.net/ai_startup?retryWrites=true&w=majority
 ENV DATABASE_NAME=ai_startup
 ENV ENVIRONMENT=production
+ENV GROQ_API_KEY=${GROQ_API_KEY:-""}
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Expose port (Railway sets $PORT)
