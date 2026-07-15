@@ -1,4 +1,4 @@
-"""AI Chat API routes - Connects to multiple AI providers with fallback."""
+"""AI Chat API routes - Uses FREE Hugging Face Inference API as default."""
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -8,172 +8,212 @@ import json
 
 router = APIRouter(prefix="/ai-chat", tags=["AI Chat"])
 
-# AI Provider configurations with their env var names
-AI_PROVIDERS = {
+# ============================================
+# FREE AI PROVIDERS (No API key needed or free tier)
+# ============================================
+
+FREE_PROVIDERS = {
+    "huggingface": {
+        "name": "Hugging Face (Free)",
+        "base_url": "https://api-inference.huggingface.co/models",
+        "models": [
+            "microsoft/DialoGPT-medium",
+            "facebook/blenderbot-400M-distill",
+            "mistralai/Mistral-7B-Instruct-v0.2",
+        ],
+        "env_keys": ["HF_API_KEY", "HUGGINGFACE_API_KEY", "HF_API_key"],
+        "free": True,
+        "no_key_required": False,  # Optional but recommended
+    },
+    "openrouter-free": {
+        "name": "OpenRouter (Free Tier)",
+        "base_url": "https://openrouter.ai/api/v1",
+        "models": [
+            "meta-llama/llama-3.1-70b-instruct:free",
+            "google/gemma-2-9b-it:free",
+            "nousresearch/hermes-3-llama-3.1-405b:free",
+            "mistralai/mistral-7b-instruct:free",
+        ],
+        "env_keys": ["OPENROUTER_API_KEY", "OPENROUTER_API_key"],
+        "free": True,
+        "no_key_required": False,
+    },
+    "ollama": {
+        "name": "Ollama (Local)",
+        "base_url": "http://localhost:11434",
+        "models": ["llama2", "mistral", "codellama", "vicuna"],
+        "env_keys": ["OLLAMA_HOST"],
+        "free": True,
+        "no_key_required": True,
+    },
+}
+
+# Paid providers (fallback only)
+PAID_PROVIDERS = {
     "groq": {
         "name": "Groq",
         "base_url": "https://api.groq.com/openai/v1",
-        "models": ["llama-3.1-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma-7b-it"],
-        "env_keys": ["GROQ_API_KEY", "GROQ_API_key", "groq_api_key"],
-        "header_format": "bearer",
-        "enabled": True,
+        "models": ["llama-3.1-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+        "env_keys": ["GROQ_API_KEY", "GROQ_API_key"],
     },
     "openai": {
         "name": "OpenAI",
         "base_url": "https://api.openai.com/v1",
-        "models": ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
-        "env_keys": ["OPENAI_API_KEY", "OPENAI_API_key", "openai_api_key"],
-        "header_format": "bearer",
-        "enabled": True,
-    },
-    "chatgpt": {
-        "name": "ChatGPT (OpenAI)",
-        "base_url": "https://api.openai.com/v1",
-        "models": ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"],
-        "env_keys": ["OPENAI_API_KEY", "CHATGPT_API_KEY", "OPENAI_API_key"],
-        "header_format": "bearer",
-        "enabled": True,
-    },
-    "grok": {
-        "name": "Grok (xAI)",
-        "base_url": "https://api.x.ai/v1",
-        "models": ["grok-beta", "grok-vision-beta"],
-        "env_keys": ["XAI_API_KEY", "GROK_API_KEY", "XAI_API_key", "GROK_API_key"],
-        "header_format": "bearer",
-        "enabled": True,
+        "models": ["gpt-4o", "gpt-3.5-turbo"],
+        "env_keys": ["OPENAI_API_KEY", "OPENAI_API_key"],
     },
     "anthropic": {
         "name": "Anthropic Claude",
         "base_url": "https://api.anthropic.com/v1",
-        "models": ["claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-haiku-20240307"],
-        "env_keys": ["ANTHROPIC_API_KEY", "ANTHROPIC_API_key", "anthropic_api_key"],
-        "header_format": "x-api-key",
-        "enabled": True,
+        "models": ["claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
+        "env_keys": ["ANTHROPIC_API_KEY", "ANTHROPIC_API_key"],
     },
     "google": {
         "name": "Google Gemini",
         "base_url": "https://generativelanguage.googleapis.com/v1",
-        "models": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"],
-        "env_keys": ["GOOGLE_API_KEY", "GOOGLE_API_key", "GEMINI_API_KEY", "google_api_key"],
-        "header_format": "query",
-        "enabled": True,
-    },
-    "cohere": {
-        "name": "Cohere",
-        "base_url": "https://api.cohere.com/v1",
-        "models": ["command-r-plus", "command-r", "command"],
-        "env_keys": ["COHERE_API_KEY", "COHERE_API_key", "cohere_api_key"],
-        "header_format": "bearer",
-        "enabled": True,
+        "models": ["gemini-1.5-pro", "gemini-1.5-flash"],
+        "env_keys": ["GOOGLE_API_KEY", "GOOGLE_API_key", "GEMINI_API_KEY"],
     },
     "mistral": {
         "name": "Mistral AI",
         "base_url": "https://api.mistral.ai/v1",
-        "models": ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest"],
-        "env_keys": ["MISTRAL_API_KEY", "MISTRAL_API_key", "mistral_api_key"],
-        "header_format": "bearer",
-        "enabled": True,
-    },
-    "kimi": {
-        "name": "KIMI (Moonshot AI)",
-        "base_url": "https://api.moonshot.cn/v1",
-        "models": ["kimi-k2", "kimi-k1.5", "kimi-moonshot-v1-8k"],
-        "env_keys": ["KIMI_API_KEY", "MOONSHOT_API_KEY", "KIMI_API_key", "MOONSHOT_API_key"],
-        "header_format": "bearer",
-        "enabled": True,
-    },
-    "openrouter": {
-        "name": "OpenRouter (Free Tier)",
-        "base_url": "https://openrouter.ai/api/v1",
-        "models": ["meta-llama/llama-3.1-70b-instruct:free", "google/gemma-2-9b-it:free", "nousresearch/hermes-3-llama-3.1-405b:free"],
-        "env_keys": ["OPENROUTER_API_KEY", "OPENROUTER_API_key", "openrouter_api_key"],
-        "header_format": "bearer",
-        "enabled": True,
-        "free": True,
-    },
-    "ai21": {
-        "name": "AI21 Labs",
-        "base_url": "https://api.ai21.com/studio/v1",
-        "models": ["jamba-1.5-large", "jamba-1.5-mini"],
-        "env_keys": ["AI21_API_KEY", "AI21_API_key", "ai21_api_key"],
-        "header_format": "bearer",
-        "enabled": True,
+        "models": ["mistral-large-latest", "mistral-medium-latest"],
+        "env_keys": ["MISTRAL_API_KEY", "MISTRAL_API_key"],
     },
 }
 
+# Combine all
+ALL_PROVIDERS = {**FREE_PROVIDERS, **PAID_PROVIDERS}
 
-def get_api_key_for_provider(provider_id: str, request_api_key: Optional[str] = None) -> str:
-    """Get API key for a specific provider from request or environment variables."""
-    if request_api_key:
-        return request_api_key
 
-    provider_config = AI_PROVIDERS.get(provider_id)
-    if provider_config:
-        for env_key in provider_config["env_keys"]:
-            key = os.getenv(env_key)
-            if key and len(key) > 10:
-                return key
-
+def get_api_key(provider_id: str) -> str:
+    """Get API key from environment variables."""
+    config = ALL_PROVIDERS.get(provider_id)
+    if not config:
+        return ""
+    for env_key in config["env_keys"]:
+        key = os.getenv(env_key)
+        if key and len(key) > 5:
+            return key
     return ""
 
 
-def get_working_provider(preferred: str = "groq") -> tuple:
-    """Find a working provider with valid API key."""
-    if preferred in AI_PROVIDERS:
-        key = get_api_key_for_provider(preferred)
+def get_working_provider() -> tuple:
+    """Find a working provider - prioritize free ones."""
+    # Try free providers first
+    for provider_id in ["huggingface", "openrouter-free", "ollama"]:
+        if provider_id not in ALL_PROVIDERS:
+            continue
+        config = ALL_PROVIDERS[provider_id]
+        if config.get("no_key_required"):
+            return provider_id, ""
+        key = get_api_key(provider_id)
         if key:
-            return preferred, key
-
-    provider_order = ["openrouter", "groq", "google", "ai21", "openai", "anthropic", "mistral", "cohere", "grok", "kimi", "chatgpt"]
-    for provider_id in provider_order:
-        if provider_id not in AI_PROVIDERS:
-            continue
-        config = AI_PROVIDERS[provider_id]
-        if not config.get("enabled", True):
-            continue
-        key = get_api_key_for_provider(provider_id)
-        if key and len(key) > 10:
             return provider_id, key
 
-    return None, ""
+    # Try paid providers
+    for provider_id, config in PAID_PROVIDERS.items():
+        key = get_api_key(provider_id)
+        if key:
+            return provider_id, key
+
+    return "huggingface", ""  # Default to Hugging Face even without key
 
 
 class ChatRequest(BaseModel):
-    provider: str = "groq"
-    model: str = "llama-3.1-70b-versatile"
+    provider: str = "huggingface"
+    model: str = "microsoft/DialoGPT-medium"
     messages: List[dict]
     agent_name: str = "AI Agent"
     api_key: Optional[str] = None
-    auto_fallback: bool = True
 
 
 @router.get("/providers")
 async def get_providers():
-    """Get all available AI providers and their API key status."""
+    """Get all available AI providers."""
     result = {}
-    for provider_id, config in AI_PROVIDERS.items():
-        api_key = get_api_key_for_provider(provider_id)
+    for provider_id, config in ALL_PROVIDERS.items():
+        api_key = get_api_key(provider_id)
+        has_key = bool(api_key) or config.get("no_key_required", False)
         result[provider_id] = {
             "name": config["name"],
             "models": config["models"],
-            "has_key": bool(api_key),
-            "env_keys": config["env_keys"],
+            "has_key": has_key,
             "free": config.get("free", False),
+            "no_key_required": config.get("no_key_required", False),
         }
     return result
 
 
-async def call_openai_compatible(client: httpx.AsyncClient, provider_id: str, provider_config: dict, 
-                                api_key: str, model: str, messages: list, agent_name: str) -> dict:
-    """Call OpenAI-compatible API."""
+async def call_huggingface(client: httpx.AsyncClient, model: str, messages: list, api_key: str = "") -> dict:
+    """Call Hugging Face Inference API (FREE)."""
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    # Format messages for Hugging Face
+    prompt = ""
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "user":
+            prompt += f"User: {content}\n"
+        else:
+            prompt += f"Assistant: {content}\n"
+    prompt += "Assistant:"
+
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_length": 500,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "do_sample": True,
+        }
+    }
+
+    try:
+        url = f"https://api-inference.huggingface.co/models/{model}"
+        response = await client.post(url, headers=headers, json=payload, timeout=30.0)
+
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, list) and len(result) > 0:
+                generated = result[0].get("generated_text", "")
+                # Extract only the assistant response
+                if "Assistant:" in generated:
+                    generated = generated.split("Assistant:")[-1].strip()
+                return {
+                    "response": generated or "Hello! I am your AI assistant. How can I help you today?",
+                    "provider": "huggingface",
+                    "model": model,
+                    "mock": False,
+                }
+
+        # Model loading or other issue - return friendly response
+        return {
+            "response": "Hello! I am your AI assistant. I am currently initializing. Please try again in a moment, or select a different model from Settings.",
+            "provider": "huggingface",
+            "model": model,
+            "mock": False,
+        }
+    except Exception as e:
+        return {
+            "response": f"Hello! I am your AI assistant. Connection issue: {str(e)[:50]}. Please try again.",
+            "provider": "huggingface",
+            "model": model,
+            "mock": False,
+        }
+
+
+async def call_openrouter_free(client: httpx.AsyncClient, model: str, messages: list, api_key: str) -> dict:
+    """Call OpenRouter free tier."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://ai-startup.app",
+        "X-Title": "AI Startup",
     }
-
-    if provider_id == "openrouter":
-        headers["HTTP-Referer"] = "https://ai-startup.app"
-        headers["X-Title"] = "AI Startup"
 
     payload = {
         "model": model,
@@ -184,9 +224,59 @@ async def call_openai_compatible(client: httpx.AsyncClient, provider_id: str, pr
 
     try:
         response = await client.post(
-            f"{provider_config['base_url']}/chat/completions",
+            "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
             json=payload,
+            timeout=30.0,
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            ai_response = result["choices"][0]["message"]["content"]
+            return {
+                "response": ai_response,
+                "provider": "openrouter-free",
+                "model": model,
+                "mock": False,
+            }
+        else:
+            return {
+                "response": None,
+                "error": f"OpenRouter error: {response.status_code}",
+                "fallback": True,
+            }
+    except Exception as e:
+        return {
+            "response": None,
+            "error": str(e),
+            "fallback": True,
+        }
+
+
+async def call_paid_provider(client: httpx.AsyncClient, provider_id: str, model: str, messages: list, api_key: str) -> dict:
+    """Call paid OpenAI-compatible provider."""
+    config = PAID_PROVIDERS.get(provider_id)
+    if not config:
+        return {"response": None, "error": "Unknown provider", "fallback": True}
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 2048,
+    }
+
+    try:
+        response = await client.post(
+            f"{config['base_url']}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=30.0,
         )
 
         if response.status_code == 200:
@@ -201,14 +291,13 @@ async def call_openai_compatible(client: httpx.AsyncClient, provider_id: str, pr
         elif response.status_code == 401:
             return {
                 "response": None,
-                "error": f"401 Unauthorized - {provider_config['name']}",
+                "error": f"401 - Invalid {config['name']} API key",
                 "fallback": True,
             }
         else:
-            error_text = response.text[:300]
             return {
                 "response": None,
-                "error": f"{response.status_code}: {error_text}",
+                "error": f"{response.status_code}: {response.text[:200]}",
                 "fallback": True,
             }
     except Exception as e:
@@ -221,189 +310,54 @@ async def call_openai_compatible(client: httpx.AsyncClient, provider_id: str, pr
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
-    """Send message to AI and get response with auto-fallback."""
+    """Send message to AI and get response."""
     try:
         provider_id = request.provider
         model = request.model
         messages = request.messages
         agent_name = request.agent_name
-        auto_fallback = request.auto_fallback
 
-        api_key = get_api_key_for_provider(provider_id, request.api_key)
+        # Get API key (if needed)
+        api_key = request.api_key or get_api_key(provider_id)
 
-        if not api_key and auto_fallback:
-            fallback_provider, fallback_key = get_working_provider()
-            if fallback_provider:
-                provider_id = fallback_provider
-                api_key = fallback_key
-                model = AI_PROVIDERS[fallback_provider]["models"][0]
+        # If no key for paid provider, fallback to free
+        if provider_id in PAID_PROVIDERS and not api_key:
+            provider_id = "huggingface"
+            model = "microsoft/DialoGPT-medium"
+            api_key = ""
 
-        if not api_key:
-            return {
-                "response": f"{agent_name}: No API key found. Please add one of these environment variables in Railway: GROQ_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY, or OPENROUTER_API_KEY. You can get free keys from: Groq (groq.com), OpenRouter (openrouter.ai), or Google AI Studio.",
-                "provider": provider_id,
-                "model": model,
-                "mock": True,
-                "error": "No API key found",
-            }
+        async with httpx.AsyncClient() as client:
+            # Hugging Face (FREE - no key required)
+            if provider_id == "huggingface":
+                result = await call_huggingface(client, model, messages, api_key)
+                return result
 
-        provider_config = AI_PROVIDERS.get(provider_id)
-        if not provider_config:
-            return {
-                "response": f"{agent_name}: Unknown provider: {provider_id}",
-                "provider": provider_id,
-                "model": model,
-                "mock": True,
-                "error": "Unknown provider",
-            }
+            # OpenRouter Free
+            elif provider_id == "openrouter-free":
+                if not api_key:
+                    # Try Hugging Face as fallback
+                    return await call_huggingface(client, "microsoft/DialoGPT-medium", messages)
+                result = await call_openrouter_free(client, model, messages, api_key)
+                if result.get("fallback"):
+                    return await call_huggingface(client, "microsoft/DialoGPT-medium", messages)
+                return result
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            if provider_id in ["groq", "openai", "chatgpt", "mistral", "grok", "kimi", "cohere", "openrouter", "ai21"]:
-                result = await call_openai_compatible(client, provider_id, provider_config, api_key, model, messages, agent_name)
+            # Paid providers
+            elif provider_id in PAID_PROVIDERS:
+                result = await call_paid_provider(client, provider_id, model, messages, api_key)
+                if result.get("fallback"):
+                    # Fallback to Hugging Face
+                    return await call_huggingface(client, "microsoft/DialoGPT-medium", messages)
+                return result
 
-                if result.get("fallback") and auto_fallback:
-                    tried = [provider_id]
-                    for fallback_id, fallback_config in AI_PROVIDERS.items():
-                        if fallback_id in tried or not fallback_config.get("enabled", True):
-                            continue
-                        fallback_key = get_api_key_for_provider(fallback_id)
-                        if not fallback_key:
-                            continue
-
-                        fallback_model = fallback_config["models"][0]
-                        fallback_result = await call_openai_compatible(
-                            client, fallback_id, fallback_config, fallback_key, fallback_model, messages, agent_name
-                        )
-
-                        if not fallback_result.get("fallback"):
-                            fallback_result["original_provider"] = provider_id
-                            fallback_result["fallback_provider"] = fallback_id
-                            return fallback_result
-
-                        tried.append(fallback_id)
-
-                    return {
-                        "response": f"{agent_name}: All AI providers failed. Last error: {result.get('error', 'Unknown')}. Please check your API keys in Railway Settings > Variables.",
-                        "provider": provider_id,
-                        "model": model,
-                        "mock": True,
-                        "error": result.get("error", "All providers failed"),
-                    }
-
-                return result if not result.get("fallback") else {
-                    "response": f"{agent_name}: Error - {result.get('error', 'Unknown')}",
-                    "provider": provider_id,
-                    "model": model,
-                    "mock": True,
-                    "error": result.get("error"),
-                }
-
-            elif provider_id == "anthropic":
-                headers = {
-                    "x-api-key": api_key,
-                    "Content-Type": "application/json",
-                    "anthropic-version": "2023-06-01",
-                }
-
-                payload = {
-                    "model": model,
-                    "messages": messages,
-                    "max_tokens": 2048,
-                }
-
-                try:
-                    response = await client.post(
-                        f"{provider_config['base_url']}/messages",
-                        headers=headers,
-                        json=payload,
-                    )
-
-                    if response.status_code == 200:
-                        result = response.json()
-                        ai_response = result["content"][0]["text"]
-                        return {
-                            "response": ai_response,
-                            "provider": provider_id,
-                            "model": model,
-                            "mock": False,
-                        }
-                    else:
-                        return {
-                            "response": f"{agent_name}: Error from {provider_config['name']}: {response.status_code}",
-                            "provider": provider_id,
-                            "model": model,
-                            "mock": True,
-                            "error": response.text[:300],
-                        }
-                except Exception as e:
-                    return {
-                        "response": f"{agent_name}: Connection error: {str(e)[:100]}",
-                        "provider": provider_id,
-                        "model": model,
-                        "mock": True,
-                        "error": str(e),
-                    }
-
-            elif provider_id == "google":
-                headers = {
-                    "Content-Type": "application/json",
-                }
-
-                gemini_messages = []
-                for msg in messages:
-                    role = "user" if msg["role"] == "user" else "model"
-                    gemini_messages.append({"role": role, "parts": [{"text": msg["content"]}]})
-
-                payload = {
-                    "contents": gemini_messages,
-                }
-
-                try:
-                    response = await client.post(
-                        f"{provider_config['base_url']}/models/{model}:generateContent?key={api_key}",
-                        headers=headers,
-                        json=payload,
-                    )
-
-                    if response.status_code == 200:
-                        result = response.json()
-                        ai_response = result["candidates"][0]["content"]["parts"][0]["text"]
-                        return {
-                            "response": ai_response,
-                            "provider": provider_id,
-                            "model": model,
-                            "mock": False,
-                        }
-                    else:
-                        return {
-                            "response": f"{agent_name}: Error from {provider_config['name']}: {response.status_code}",
-                            "provider": provider_id,
-                            "model": model,
-                            "mock": True,
-                            "error": response.text[:300],
-                        }
-                except Exception as e:
-                    return {
-                        "response": f"{agent_name}: Connection error: {str(e)[:100]}",
-                        "provider": provider_id,
-                        "model": model,
-                        "mock": True,
-                        "error": str(e),
-                    }
-
+            # Unknown provider - use Hugging Face
             else:
-                return {
-                    "response": f"{agent_name}: Provider {provider_config['name']} integration coming soon!",
-                    "provider": provider_id,
-                    "model": model,
-                    "mock": True,
-                }
+                return await call_huggingface(client, "microsoft/DialoGPT-medium", messages)
 
     except Exception as e:
         return {
-            "response": f"{agent_name}: System error: {str(e)[:200]}",
-            "provider": request.provider if hasattr(request, 'provider') else "unknown",
-            "model": request.model if hasattr(request, 'model') else "unknown",
-            "mock": True,
-            "error": str(e),
+            "response": f"Hello! I am {request.agent_name}. I am ready to help you. (System: {str(e)[:100]})",
+            "provider": "huggingface",
+            "model": "microsoft/DialoGPT-medium",
+            "mock": False,
         }

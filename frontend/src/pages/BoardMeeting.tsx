@@ -26,6 +26,7 @@ const getStoredProviders = () => {
 
 // Assign AI provider to each agent
 const AGENT_PROVIDERS = [
+  { provider: 'huggingface', model: 'microsoft/DialoGPT-medium', icon: '🤗' },
   { provider: 'groq', model: 'llama-3.1-70b-versatile', icon: '🚀' },
   { provider: 'openai', model: 'gpt-4o', icon: '🧠' },
   { provider: 'chatgpt', model: 'gpt-4-turbo', icon: '💬' },

@@ -31,7 +31,7 @@ const getStoredProviders = () => {
 const getActiveProvider = () => {
   const providers = getStoredProviders()
   const active = providers.find((p: any) => p.isActive)
-  return active || providers[0] || { id: 'groq', name: 'Groq', models: ['llama-3.1-70b-versatile'], keyValue: '' }
+  return active || providers[0] || { id: 'huggingface', name: 'Hugging Face (FREE)', models: ['microsoft/DialoGPT-medium'], keyValue: '' }
 }
 
 interface ChatMessage {
