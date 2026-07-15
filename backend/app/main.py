@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 import logging
 
 # Load environment variables from .env file (for local dev)
@@ -100,12 +100,17 @@ async def api_health_check():
     }
 
 # ============================================
-# ROOT ENDPOINT
+# ROOT ENDPOINT - Serve Frontend
 # ============================================
 
 @app.get("/")
 async def root():
-    """Root endpoint."""
+    """Serve the frontend application."""
+    index_path = os.path.join(os.path.dirname(__file__), "..", "frontend_dist", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+
+    # Fallback to API info if frontend not built
     return {
         "name": "AI Startup API",
         "version": "3.0.0",
@@ -169,22 +174,27 @@ except Exception as e:
 try:
     frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend_dist")
     if os.path.exists(frontend_dist):
-        app.mount("/static", StaticFiles(directory=frontend_dist), name="static")
+        app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
         logger.info(f"Serving static files from {frontend_dist}")
+    else:
+        logger.warning(f"Frontend dist not found at {frontend_dist}")
 except Exception as e:
     logger.warning(f"Could not mount static files: {e}")
 
-# Catch-all for SPA routing
+# Catch-all for SPA routing - serve index.html for all non-API routes
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
-    if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi"):
+    """Serve frontend SPA for all non-API routes."""
+    # Don't intercept API routes
+    if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi") or full_path.startswith("health"):
         return JSONResponse(status_code=404, content={"detail": "Not found"})
 
+    # Try to serve index.html
     index_path = os.path.join(os.path.dirname(__file__), "..", "frontend_dist", "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)
 
-    return {"message": "AI Startup API - Frontend not built yet"}
+    return {"message": "AI Startup API - Frontend not built yet. Please build the frontend first."}
 
 # ============================================
 # MAIN ENTRY POINT
