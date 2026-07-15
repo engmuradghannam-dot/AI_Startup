@@ -1,13 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery } from 'react-query'
 import { 
-  Send, Bot, User, Settings, Mic, MicOff, Paperclip, 
-  Image, Video, FileText, Monitor, X, Volume2, VolumeX,
-  Brain, Sparkles, Trash2, Download, Cpu, Cloud, Zap,
-  Server, CheckCircle, AlertCircle, Loader2
+  Send, Bot, User, Trash2, Download, 
+  Brain, Sparkles, Loader2, Cloud, CheckCircle, AlertCircle,
+  Server, Zap
 } from 'lucide-react'
-import { aiChatApi, localLlmApi } from '../services/api'
-import axios from 'axios'
+import { aiChatApi } from '../services/api'
 import toast from 'react-hot-toast'
 
 interface ChatMessage {
@@ -15,7 +13,6 @@ interface ChatMessage {
   role: 'user' | 'agent' | 'system'
   content: string
   agentName?: string
-  agentId?: string
   timestamp: string
   source?: string
   provider?: string
@@ -26,13 +23,9 @@ interface AIModel {
   id: string
   name: string
   provider: string
-  size: string
-  parameters: string
   speed: string
   capabilities: string[]
   best_for: string[]
-  ram_required_mb: number
-  installed?: boolean
 }
 
 interface AIAgent {
@@ -46,42 +39,20 @@ interface AIAgent {
 export default function AgentChat() {
   const [message, setMessage] = useState('')
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
-  const [selectedAgent, setSelectedAgent] = useState<string>('auto')
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [agentMode, setAgentMode] = useState<string>('auto')
   const [isLoading, setIsLoading] = useState(false)
-  const [isRecording, setIsRecording] = useState(false)
-  const [showSettings, setShowSettings] = useState(false)
   const [showAgentTrace, setShowAgentTrace] = useState(false)
   const [lastTrace, setLastTrace] = useState<any[]>([])
-  const [localLlmStatus, setLocalLlmStatus] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Fetch AI health status
-  const { data: healthData } = useQuery(
-    'ai-health',
-    () => aiChatApi.getHealth(),
-    { refetchInterval: 30000 }
-  )
-
-  // Fetch available models
-  const { data: modelsData } = useQuery(
-    'ai-models',
-    () => aiChatApi.getModels(),
-    { refetchInterval: 60000 }
-  )
-
-  // Fetch available agents
-  const { data: agentsData } = useQuery(
-    'ai-agents',
-    () => aiChatApi.getAgents(),
-    { refetchInterval: 60000 }
-  )
+  const { data: healthData } = useQuery('ai-health', () => aiChatApi.getHealth(), { refetchInterval: 30000 })
+  const { data: modelsData } = useQuery('ai-models', () => aiChatApi.getModels(), { refetchInterval: 60000 })
+  const { data: agentsData } = useQuery('ai-agents', () => aiChatApi.getAgents(), { refetchInterval: 60000 })
 
   const models: AIModel[] = modelsData || []
   const agents: AIAgent[] = agentsData || []
 
-  // Scroll to bottom
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
@@ -89,19 +60,6 @@ export default function AgentChat() {
   useEffect(() => {
     scrollToBottom()
   }, [chatHistory])
-
-  // Check local LLM status
-  useEffect(() => {
-    const checkLocalLlm = async () => {
-      try {
-        const status = await localLlmApi.getHealth()
-        setLocalLlmStatus(status)
-      } catch (e) {
-        setLocalLlmStatus({ status: 'unavailable' })
-      }
-    }
-    checkLocalLlm()
-  }, [])
 
   const generateId = () => Math.random().toString(36).substring(2, 10)
 
@@ -152,7 +110,7 @@ export default function AgentChat() {
       const errorMessage: ChatMessage = {
         id: generateId(),
         role: 'system',
-        content: `Error: ${error.response?.data?.detail || error.message}. Make sure Ollama is running locally or configure GROQ_API_KEY.`,
+        content: `Error: ${error.response?.data?.detail || error.message}. Please check your API configuration.`,
         timestamp: new Date().toISOString(),
       }
       setChatHistory(prev => [...prev, errorMessage])
@@ -196,22 +154,6 @@ export default function AgentChat() {
             AI Status
           </h3>
 
-          {/* Local LLM Status */}
-          <div className="mb-3">
-            <div className="flex items-center gap-2 mb-1">
-              <Cpu className="w-4 h-4 text-blue-400" />
-              <span className="text-sm text-gray-300">Local LLM</span>
-              {localLlmStatus?.status === 'healthy' ? (
-                <CheckCircle className="w-4 h-4 text-green-400" />
-              ) : (
-                <AlertCircle className="w-4 h-4 text-yellow-400" />
-              )}
-            </div>
-            <div className="text-xs text-gray-500 ml-6">
-              {localLlmStatus?.provider || 'Not connected'}
-            </div>
-          </div>
-
           {/* Groq Status */}
           <div className="mb-3">
             <div className="flex items-center gap-2 mb-1">
@@ -220,11 +162,11 @@ export default function AgentChat() {
               {healthData?.groq?.available ? (
                 <CheckCircle className="w-4 h-4 text-green-400" />
               ) : (
-                <AlertCircle className="w-4 h-4 text-gray-500" />
+                <AlertCircle className="w-4 h-4 text-yellow-400" />
               )}
             </div>
             <div className="text-xs text-gray-500 ml-6">
-              {healthData?.groq?.available ? 'Available' : 'Not configured'}
+              {healthData?.groq?.available ? 'Connected' : 'Check API key'}
             </div>
           </div>
 
@@ -233,7 +175,7 @@ export default function AgentChat() {
             <Zap className="w-4 h-4 text-yellow-400" />
             <span className="text-sm text-gray-300">Mode:</span>
             <span className="text-xs px-2 py-0.5 bg-blue-900 text-blue-300 rounded-full">
-              {healthData?.mode || 'auto'}
+              {healthData?.mode || 'groq'}
             </span>
           </div>
         </div>
@@ -251,16 +193,10 @@ export default function AgentChat() {
             <option value="">Auto-select</option>
             {models.map((model) => (
               <option key={model.id} value={model.id}>
-                {model.name} {model.installed ? '✓' : ''} ({model.provider})
+                {model.name} ({model.provider})
               </option>
             ))}
           </select>
-
-          {models.length === 0 && (
-            <div className="mt-2 text-xs text-yellow-500">
-              No models detected. Install Ollama and pull models.
-            </div>
-          )}
         </div>
 
         {/* Agent Mode */}
@@ -324,7 +260,7 @@ export default function AgentChat() {
             <div>
               <h1 className="text-lg font-semibold text-white">AI Agent Chat</h1>
               <div className="flex items-center gap-2 text-xs text-gray-500">
-                <span>Local LLM First</span>
+                <span>Groq Cloud</span>
                 <span>•</span>
                 <span>Multi-Agent</span>
                 <span>•</span>
@@ -387,11 +323,11 @@ export default function AgentChat() {
               <Brain className="w-16 h-16 mb-4 text-gray-700" />
               <h2 className="text-xl font-semibold mb-2">Welcome to AI Agent Chat</h2>
               <p className="text-center max-w-md mb-4">
-                Start a conversation with our multi-agent system powered by local LLMs.
+                Start a conversation with our multi-agent system powered by Groq Cloud API.
                 The system automatically detects task complexity and routes to the right agents.
               </p>
               <div className="flex gap-2">
-                <span className="text-xs px-3 py-1 bg-gray-800 rounded-full">Local LLM</span>
+                <span className="text-xs px-3 py-1 bg-gray-800 rounded-full">Groq Cloud</span>
                 <span className="text-xs px-3 py-1 bg-gray-800 rounded-full">4 Agents</span>
                 <span className="text-xs px-3 py-1 bg-gray-800 rounded-full">10 Skills</span>
               </div>
@@ -426,11 +362,7 @@ export default function AgentChat() {
 
                 {msg.source && (
                   <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
-                    {msg.source === 'local' ? (
-                      <Cpu className="w-3 h-3" />
-                    ) : (
-                      <Cloud className="w-3 h-3" />
-                    )}
+                    <Cloud className="w-3 h-3" />
                     <span>{msg.provider} ({msg.source})</span>
                     {msg.agentTrace && (
                       <span>• {msg.agentTrace.length} agents</span>
@@ -490,10 +422,10 @@ export default function AgentChat() {
                 <span>Shift+Enter for new line</span>
               </div>
               <div className="flex items-center gap-2">
-                {healthData?.local?.status === 'healthy' && (
+                {healthData?.groq?.available && (
                   <span className="flex items-center gap-1 text-green-400">
                     <Server className="w-3 h-3" />
-                    Local LLM Active
+                    Groq Connected
                   </span>
                 )}
               </div>

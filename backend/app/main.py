@@ -30,17 +30,13 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("AI Startup Server Starting...")
 
-    # Initialize local LLM service
+    # Initialize Groq service
     try:
-        from app.services.local_llm_service import get_local_llm_service
-        local_llm = await get_local_llm_service()
-        if local_llm.is_available:
-            logger.info(f"Local LLM ready: {local_llm.provider}")
-            logger.info(f"Available models: {local_llm.available_models}")
-        else:
-            logger.warning("No local LLM provider available. Install Ollama or LocalAI.")
+        from app.services.groq_service import get_groq_service
+        groq = await get_groq_service()
+        logger.info("Groq service initialized")
     except Exception as e:
-        logger.warning(f"Local LLM initialization failed: {e}")
+        logger.warning(f"Groq initialization: {e}")
 
     # Initialize multi-agent orchestrator
     try:
@@ -51,7 +47,7 @@ async def lifespan(app: FastAPI):
         for agent in agents:
             logger.info(f"  - {agent['name']}: {agent['specialty']}")
     except Exception as e:
-        logger.warning(f"Multi-agent initialization failed: {e}")
+        logger.warning(f"Multi-agent initialization: {e}")
 
     yield
     logger.info("AI Startup Server Shutting down...")
@@ -62,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI Startup API",
-    description="Multi-Agent AI System with Local LLM (Ollama/LocalAI) + Groq Fallback",
+    description="Multi-Agent AI System with Groq Cloud API + Local LLM Support",
     version="3.0.0",
     lifespan=lifespan,
 )
@@ -80,7 +76,7 @@ app.add_middleware(
 )
 
 # ============================================
-# HEALTH CHECK (Always available)
+# HEALTH CHECK
 # ============================================
 
 @app.get("/health/")
@@ -91,7 +87,7 @@ async def health_check():
         "version": "3.0.0",
         "mode": "production",
         "timestamp": "2026-07-15",
-        "features": ["local_llm", "multi_agent", "groq_fallback", "fable5_skills"],
+        "features": ["groq_cloud", "multi_agent", "fable5_skills", "local_llm_ready"],
     }
 
 @app.get("/api/health/")
@@ -100,7 +96,7 @@ async def api_health_check():
     return {
         "status": "healthy",
         "version": "3.0.0",
-        "features": ["local_llm", "multi_agent", "groq_fallback", "fable5_skills"],
+        "features": ["groq_cloud", "multi_agent", "fable5_skills", "local_llm_ready"],
     }
 
 # ============================================
@@ -113,14 +109,14 @@ async def root():
     return {
         "name": "AI Startup API",
         "version": "3.0.0",
-        "description": "Multi-Agent AI System with Local LLM + Groq Fallback",
+        "description": "Multi-Agent AI System with Groq Cloud + Local LLM Support",
         "docs": "/docs",
         "health": "/health",
         "features": {
-            "local_llm": "Ollama/LocalAI integration - FREE, no API keys",
+            "groq_cloud": "Primary AI via Groq API - fast & reliable",
             "multi_agent": "4 specialized agents with skill integration",
-            "groq_fallback": "Cloud fallback when local is unavailable",
             "fable5_skills": "10 advanced skills for agent intelligence",
+            "local_llm_ready": "Ollama/LocalAI support for local development",
         },
     }
 
@@ -145,7 +141,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 try:
     from app.routers import agents, skills, health, training, voice, ai_chat, local_llm
 
-    # Include all routers
     app.include_router(agents.router, prefix="/api")
     app.include_router(skills.router, prefix="/api")
     app.include_router(health.router, prefix="/api")
@@ -158,7 +153,6 @@ try:
 
 except Exception as e:
     logger.error(f"Failed to register routers: {e}")
-    # Create minimal fallback router
     from fastapi import APIRouter
     fallback_router = APIRouter()
 
@@ -172,26 +166,20 @@ except Exception as e:
 # STATIC FILES (Frontend)
 # ============================================
 
-# Serve frontend static files
 try:
     frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend_dist")
     if os.path.exists(frontend_dist):
         app.mount("/static", StaticFiles(directory=frontend_dist), name="static")
         logger.info(f"Serving static files from {frontend_dist}")
-    else:
-        logger.warning(f"Frontend dist not found at {frontend_dist}")
 except Exception as e:
     logger.warning(f"Could not mount static files: {e}")
 
 # Catch-all for SPA routing
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
-    """Serve frontend SPA for all non-API routes."""
-    # Don't intercept API routes
     if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi"):
         return JSONResponse(status_code=404, content={"detail": "Not found"})
 
-    # Try to serve index.html
     index_path = os.path.join(os.path.dirname(__file__), "..", "frontend_dist", "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path)

@@ -1,22 +1,12 @@
 """Multi-Agent Orchestrator with Fable 5 Skills.
 
-4 Specialized Agents:
+4 Specialized Agents using Groq Cloud API:
 - strategist: Planning & Decision Making
 - coder: Software Development
-- analyst: Data Analysis & Research  
+- analyst: Data Analysis & Research
 - coordinator: Task Coordination & Synthesis
 
-10 Fable 5 Skills integrated:
-1. act-when-ready
-2. autonomous-continuation
-3. effort-calibrator
-4. grounded-progress
-5. markdown-memory
-6. no-gold-plating
-7. regrounding-summary
-8. scope-guard
-9. skill-refactorer
-10. subagent-orchestration
+10 Fable 5 Skills integrated.
 """
 import json
 import logging
@@ -24,7 +14,7 @@ from typing import List, Dict, Any, Optional, Literal
 from datetime import datetime
 import asyncio
 
-from app.services.unified_ai_service import get_unified_ai_service, UnifiedAIService
+from app.services.unified_ai_service import get_unified_ai_service
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +48,6 @@ class Agent:
         self,
         task: str,
         context: Optional[Dict[str, Any]] = None,
-        unified_ai: Optional[UnifiedAIService] = None,
     ) -> Dict[str, Any]:
         """Execute agent thinking process."""
         start_time = datetime.utcnow()
@@ -89,7 +78,7 @@ Think step by step and provide your best response."""
             {"role": "user", "content": prompt},
         ]
 
-        ai = unified_ai or await get_unified_ai_service()
+        ai = await get_unified_ai_service()
         result = await ai.chat_completion(
             messages=messages,
             model=self.model,
@@ -136,7 +125,7 @@ class MultiAgentOrchestrator:
         self._execution_history: List[Dict[str, Any]] = []
 
     def _create_default_agents(self):
-        """Create the 4 core specialized agents."""
+        """Create the 4 core specialized agents using Groq models."""
 
         agent_configs = [
             {
@@ -153,7 +142,7 @@ class MultiAgentOrchestrator:
 
 Always think step by step and provide clear, structured output.""",
                 "skills": ["act-when-ready", "effort-calibrator", "scope-guard", "grounded-progress"],
-                "model": "phi4-mini",
+                "model": "llama-3.1-70b-versatile",
             },
             {
                 "name": "coder",
@@ -169,7 +158,7 @@ Always think step by step and provide clear, structured output.""",
 
 Always provide production-ready code with comments and explanations.""",
                 "skills": ["no-gold-plating", "skill-refactorer", "autonomous-continuation", "scope-guard"],
-                "model": "qwen3:0.6b",
+                "model": "llama-3.1-70b-versatile",
             },
             {
                 "name": "analyst",
@@ -185,7 +174,7 @@ Always provide production-ready code with comments and explanations.""",
 
 Always cite evidence and provide structured, analytical output.""",
                 "skills": ["grounded-progress", "regrounding-summary", "markdown-memory", "effort-calibrator"],
-                "model": "phi4-mini",
+                "model": "llama-3.1-70b-versatile",
             },
             {
                 "name": "coordinator",
@@ -201,7 +190,7 @@ Always cite evidence and provide structured, analytical output.""",
 
 Always produce unified, well-structured final outputs.""",
                 "skills": ["subagent-orchestration", "markdown-memory", "scope-guard", "regrounding-summary"],
-                "model": "phi4-mini",
+                "model": "llama-3.1-70b-versatile",
             },
         ]
 
@@ -429,10 +418,10 @@ All contributions:
                 agent.memory.clear()
 
 
-_orchestrator: Optional[MultiAgentOrchestrator] = None
+_orchestrator = None
 
 
-async def get_multi_agent_orchestrator() -> MultiAgentOrchestrator:
+async def get_multi_agent_orchestrator():
     global _orchestrator
     if _orchestrator is None:
         _orchestrator = MultiAgentOrchestrator()
