@@ -6,7 +6,6 @@ from app.models.agent import Agent
 from app.models.skill import Skill
 from app.models.memory import TrainingDataset, MemoryEntry, FeedbackEntry
 from app.models.task import Task
-from app.routers.settings_api import AIProviderDocument
 
 _client = None
 
@@ -46,7 +45,6 @@ async def init_db():
                 MemoryEntry,
                 FeedbackEntry,
                 Task,
-                AIProviderDocument,
             ]
         )
         print("✅ Beanie ODM initialized")

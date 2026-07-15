@@ -30,22 +30,6 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("AI Startup Server Starting...")
 
-    # Initialize database
-    try:
-        from app.database import init_db
-        await init_db()
-        logger.info("Database initialized with Beanie ODM")
-    except Exception as e:
-        logger.warning(f"Database initialization: {e}")
-
-    # Initialize default providers
-    try:
-        from app.routers.settings_api import init_default_providers
-        await init_default_providers()
-        logger.info("Default AI providers initialized")
-    except Exception as e:
-        logger.warning(f"Provider initialization: {e}")
-
     # Initialize Groq service
     try:
         from app.services.groq_service import get_groq_service

@@ -109,27 +109,26 @@ class MultiProviderAIService:
         }
 
     async def _load_provider_settings(self):
-        """Load provider settings from database."""
+        """Load provider settings from settings_api memory."""
         try:
-            from app.routers.settings_api import AIProviderDocument
-            providers = await AIProviderDocument.find_all().to_list()
+            from app.routers.settings_api import _providers_memory
             self._provider_settings = {
-                p.provider_id: {
-                    "api_key": p.api_key,
-                    "base_url": p.base_url,
-                    "default_model": p.default_model,
-                    "is_active": p.is_active,
-                    "temperature": p.temperature,
-                    "max_tokens": p.max_tokens,
+                pid: {
+                    "api_key": p.get("api_key", ""),
+                    "base_url": p.get("base_url", ""),
+                    "default_model": p.get("default_model", ""),
+                    "is_active": p.get("is_active", False),
+                    "temperature": p.get("temperature", 0.7),
+                    "max_tokens": p.get("max_tokens", 2048),
                 }
-                for p in providers
+                for pid, p in _providers_memory.items()
             }
         except Exception as e:
-            logger.warning(f"Could not load provider settings from DB: {e}")
+            logger.warning(f"Could not load provider settings: {e}")
             self._provider_settings = {}
 
     def _get_api_key(self, provider_id: str) -> Optional[str]:
-        """Get API key for a provider from database or environment."""
+        """Get API key for a provider from settings or environment."""
         if provider_id in self._provider_settings:
             key = self._provider_settings[provider_id].get("api_key", "")
             if key and key != "local":
@@ -172,7 +171,7 @@ class MultiProviderAIService:
         return self.PROVIDERS.get(provider_id, {}).get("models", [""])[0]
 
     async def _get_active_provider(self) -> Optional[str]:
-        """Determine which provider to use based on database settings."""
+        """Determine which provider to use based on settings."""
         await self._load_provider_settings()
 
         for provider_id, settings in self._provider_settings.items():
