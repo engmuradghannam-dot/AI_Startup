@@ -186,6 +186,18 @@ export const skillsApi = {
 export const healthApi = {
   check: () => api.get('/api/health/'),
   detailed: () => api.get('/api/health/detailed'),
+  getMetrics: async () => {
+    const res = await api.get('/api/notifications/metrics')
+    return res
+  },
+  getCosts: async () => {
+    const res = await api.get('/api/ai-chat/metrics')
+    return res
+  },
+  getAlerts: async () => {
+    const res = await api.get('/api/notifications/?unread_only=true&limit=5')
+    return res
+  },
 }
 
 // ============================================
@@ -202,6 +214,10 @@ export const trainingApi = {
   },
   createJob: (data: any) => api.post('/api/training/jobs', data),
   getJobStatus: (id: string) => api.get(`/api/training/jobs/${id}/status`),
+  getStats: async () => {
+    const res = await api.get('/api/training/stats')
+    return res
+  },
 }
 
 // ============================================
@@ -216,18 +232,6 @@ export const voiceApi = {
     }),
   getVoices: () => api.get('/api/voice/voices'),
 }
-
-// Export all APIs
-export default {
-  agents: agentsApi,
-  aiChat: aiChatApi,
-  localLlm: localLlmApi,
-  skills: skillsApi,
-  health: healthApi,
-  training: trainingApi,
-  voice: voiceApi,
-}
-
 // ============================================
 // MEMORY API
 // ============================================
