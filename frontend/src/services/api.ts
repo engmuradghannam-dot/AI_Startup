@@ -421,6 +421,45 @@ export const integrationsApi = {
   },
 }
 
+
+// ============================================
+// SETTINGS API
+// ============================================
+export const settingsApi = {
+  getProviders: async () => {
+    const res = await api.get('/api/settings/providers')
+    return ensureArray(res.data)
+  },
+  getProvider: async (id: string) => {
+    const res = await api.get(`/api/settings/providers/${id}`)
+    return res.data
+  },
+  updateProvider: async (id: string, data: any) => {
+    const res = await api.patch(`/api/settings/providers/${id}`, data)
+    return res.data
+  },
+  testProvider: async (id: string) => {
+    const res = await api.post(`/api/settings/providers/${id}/test`)
+    return res.data
+  },
+  getActiveProvider: async () => {
+    const res = await api.get('/api/settings/active-provider')
+    return res.data
+  },
+  setActiveProvider: async (id: string) => {
+    const res = await api.post(`/api/settings/active-provider/${id}`)
+    return res.data
+  },
+  getLlmMode: async () => {
+    const res = await api.get('/api/settings/llm-mode')
+    return res.data
+  },
+  setLlmMode: async (mode: string) => {
+    const res = await api.post(`/api/settings/llm-mode/${mode}`)
+    return res.data
+  },
+}
+
 // Export all APIs
 export default {
   agents: agentsApi,
@@ -434,4 +473,5 @@ export default {
   learning: learningApi,
   notifications: notificationsApi,
   integrations: integrationsApi,
+  settings: settingsApi,
 }

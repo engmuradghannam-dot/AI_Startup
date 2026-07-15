@@ -176,7 +176,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Import all routers
 try:
-    from app.routers import agents, skills, health, training, voice, ai_chat, local_llm, memory, learning, notifications, integrations
+    from app.routers import agents, skills, health, training, voice, ai_chat, local_llm, memory, learning, notifications, integrations, settings_api
 
     app.include_router(agents.router, prefix="/api")
     app.include_router(skills.router, prefix="/api")
@@ -189,6 +189,7 @@ try:
     app.include_router(learning.router, prefix="/api")
     app.include_router(notifications.router, prefix="/api")
     app.include_router(integrations.router, prefix="/api")
+    app.include_router(settings_api.router, prefix="/api")
 
     logger.info("All API routers registered successfully")
 

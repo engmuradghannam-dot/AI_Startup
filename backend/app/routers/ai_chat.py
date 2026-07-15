@@ -6,7 +6,7 @@ import os
 import httpx
 import json
 
-from app.services.unified_ai_service import get_unified_ai_service, UnifiedAIService
+from app.services.multi_provider_ai import get_multi_provider_service, UnifiedAIService
 from app.services.multi_agent_orchestrator import get_multi_agent_orchestrator, MultiAgentOrchestrator
 
 router = APIRouter(prefix="/ai-chat", tags=["AI Chat"])

@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application settings."""
 
-    # Groq API (primary for cloud)
+    # Groq API (primary for cloud) - Set GROQ_API_KEY in Railway environment variables
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
     groq_base_url: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     groq_default_model: str = os.getenv("GROQ_DEFAULT_MODEL", "llama3-8b-8192")

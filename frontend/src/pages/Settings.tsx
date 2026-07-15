@@ -1,456 +1,281 @@
 import { useState, useEffect } from 'react'
-import { useQuery } from 'react-query'
-import { Key, Database, Globe, Save, TestTube, Trash2 } from 'lucide-react'
-import toast from 'react-hot-toast'
+import { settingsApi } from '../services/api'
+import { Brain, Check, AlertTriangle, RefreshCw, Key, Zap, Globe, Server } from 'lucide-react'
 
-// AI Providers configuration
 interface AIProvider {
   id: string
   name: string
-  keyName: string
-  keyValue: string
-  baseUrl: string
-  models: string[]
-  isActive: boolean
+  api_key: string
+  base_url: string
+  default_model: string
+  is_active: boolean
+  temperature: number
+  max_tokens: number
 }
 
-const DEFAULT_PROVIDERS: AIProvider[] = [
-  {
-    id: 'huggingface',
-    name: 'Hugging Face (FREE)',
-    keyName: 'HF_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://api-inference.huggingface.co/models',
-    models: ['microsoft/DialoGPT-medium', 'facebook/blenderbot-400M-distill', 'mistralai/Mistral-7B-Instruct-v0.2'],
-    isActive: true,
-  },
-  {
-    id: 'openrouter-free',
-    name: 'OpenRouter (Free Tier)',
-    keyName: 'OPENROUTER_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://openrouter.ai/api/v1',
-    models: ['meta-llama/llama-3.1-70b-instruct:free', 'google/gemma-2-9b-it:free', 'mistralai/mistral-7b-instruct:free'],
-    isActive: false,
-  },
-  {
-    id: 'groq',
-    name: 'Groq',
-    keyName: 'GROQ_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://api.groq.com/openai/v1',
-    models: ['llama-3.1-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768', 'gemma-7b-it'],
-    isActive: false,
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    keyName: 'OPENAI_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://api.openai.com/v1',
-    models: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-    isActive: false,
-  },
-  {
-    id: 'chatgpt',
-    name: 'ChatGPT (OpenAI)',
-    keyName: 'OPENAI_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://api.openai.com/v1',
-    models: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-    isActive: false,
-  },
-  {
-    id: 'grok',
-    name: 'Grok (xAI)',
-    keyName: 'XAI_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://api.x.ai/v1',
-    models: ['grok-beta', 'grok-vision-beta'],
-    isActive: false,
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic Claude',
-    keyName: 'ANTHROPIC_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://api.anthropic.com/v1',
-    models: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
-    isActive: false,
-  },
-  {
-    id: 'google',
-    name: 'Google Gemini',
-    keyName: 'GOOGLE_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1',
-    models: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro'],
-    isActive: false,
-  },
-  {
-    id: 'cohere',
-    name: 'Cohere',
-    keyName: 'COHERE_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://api.cohere.com/v1',
-    models: ['command-r-plus', 'command-r', 'command'],
-    isActive: false,
-  },
-  {
-    id: 'mistral',
-    name: 'Mistral AI',
-    keyName: 'MISTRAL_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://api.mistral.ai/v1',
-    models: ['mistral-large-latest', 'mistral-medium-latest', 'mistral-small-latest'],
-    isActive: false,
-  },
-  {
-    id: 'kimi',
-    name: 'KIMI (Moonshot AI)',
-    keyName: 'KIMI_API_KEY',
-    keyValue: '',
-    baseUrl: 'https://api.moonshot.cn/v1',
-    models: ['kimi-k2', 'kimi-k1.5', 'kimi-moonshot-v1-8k'],
-    isActive: false,
-  },
-];
-// Storage helpers
-const getStoredProviders = (): AIProvider[] => {
-  try {
-    const stored = localStorage.getItem('ai_startup_providers')
-    if (stored) return JSON.parse(stored)
-  } catch { }
-  return DEFAULT_PROVIDERS
-}
+export default function SettingsPage() {
+  const [providers, setProviders] = useState<AIProvider[]>([])
+  const [activeProvider, setActiveProvider] = useState<string | null>(null)
+  const [llmMode, setLlmMode] = useState('auto')
+  const [loading, setLoading] = useState(false)
+  const [testing, setTesting] = useState<string | null>(null)
+  const [message, setMessage] = useState('')
+  const [showKey, setShowKey] = useState<Record<string, boolean>>({})
 
-const storeProviders = (providers: AIProvider[]) => {
-  localStorage.setItem('ai_startup_providers', JSON.stringify(providers))
-}
+  useEffect(() => {
+    loadProviders()
+    loadLlmMode()
+  }, [])
 
-const getStoredMongoUri = (): string => {
-  try {
-    return localStorage.getItem('ai_startup_mongodb_uri') || ''
-  } catch { }
-  return ''
-}
-
-const storeMongoUri = (uri: string) => {
-  localStorage.setItem('ai_startup_mongodb_uri', uri)
-}
-
-export default function Settings() {
-  const [activeTab, setActiveTab] = useState('ai')
-  const [providers, setProviders] = useState<AIProvider[]>(getStoredProviders())
-  const [mongoUri, setMongoUri] = useState(getStoredMongoUri())
-  const [testResult, setTestResult] = useState<string>('')
-
-  const tabs = [
-    { id: 'ai', label: 'AI Providers', icon: Key },
-    { id: 'database', label: 'Database', icon: Database },
-    { id: 'general', label: 'General', icon: Globe },
-  ]
-
-  const handleSaveProviders = () => {
-    storeProviders(providers)
-    toast.success('AI providers saved successfully')
+  const loadProviders = async () => {
+    try {
+      const res = await settingsApi.getProviders()
+      setProviders(res || [])
+      const active = res?.find((p: AIProvider) => p.is_active)
+      if (active) setActiveProvider(active.id)
+    } catch (e) {
+      console.error(e)
+    }
   }
 
-  const handleSaveMongo = () => {
-    storeMongoUri(mongoUri)
-    toast.success('MongoDB connection saved')
+  const loadLlmMode = async () => {
+    try {
+      const res = await settingsApi.getLlmMode()
+      setLlmMode(res?.mode || 'auto')
+    } catch (e) {
+      console.error(e)
+    }
   }
 
-  const updateProviderKey = (providerId: string, keyValue: string) => {
-    setProviders(prev => prev.map(p =>
-      p.id === providerId ? { ...p, keyValue } : p
-    ))
+  const handleUpdateProvider = async (providerId: string, updates: Partial<AIProvider>) => {
+    setLoading(true)
+    try {
+      await settingsApi.updateProvider(providerId, updates)
+      setMessage(`${providerId} updated successfully!`)
+      loadProviders()
+    } catch (e) {
+      setMessage(`Error updating ${providerId}`)
+    }
+    setLoading(false)
+    setTimeout(() => setMessage(''), 3000)
   }
 
-  const toggleProvider = (providerId: string) => {
-    setProviders(prev => prev.map(p =>
-      p.id === providerId ? { ...p, isActive: !p.isActive } : p
-    ))
+  const handleTestProvider = async (providerId: string) => {
+    setTesting(providerId)
+    try {
+      const res = await settingsApi.testProvider(providerId)
+      setMessage(res?.message || 'Test completed')
+    } catch (e) {
+      setMessage(`Test failed for ${providerId}`)
+    }
+    setTesting(null)
+    setTimeout(() => setMessage(''), 5000)
   }
 
-  const handleTestConnection = async (provider: AIProvider) => {
-    setTestResult(`Testing ${provider.name}...`)
-
-    setTimeout(() => {
-      if (provider.keyValue) {
-        setTestResult(`✅ ${provider.name} API key saved!`)
-        toast.success(`${provider.name} configured`)
-      } else {
-        setTestResult(`❌ ${provider.name}: No API key provided`)
-        toast.error(`Please enter ${provider.name} API key`)
-      }
-    }, 1500)
+  const handleSetActive = async (providerId: string) => {
+    setLoading(true)
+    try {
+      await settingsApi.setActiveProvider(providerId)
+      setActiveProvider(providerId)
+      setMessage(`${providerId} is now active!`)
+      loadProviders()
+    } catch (e) {
+      setMessage(`Error setting ${providerId} as active`)
+    }
+    setLoading(false)
+    setTimeout(() => setMessage(''), 3000)
   }
 
-  const handleTestMongo = async () => {
-    setTestResult('Testing MongoDB connection...')
+  const handleSetLlmMode = async (mode: string) => {
+    try {
+      await settingsApi.setLlmMode(mode)
+      setLlmMode(mode)
+      setMessage(`LLM mode set to ${mode}`)
+    } catch (e) {
+      setMessage('Error setting LLM mode')
+    }
+    setTimeout(() => setMessage(''), 3000)
+  }
 
-    setTimeout(() => {
-      if (mongoUri) {
-        setTestResult('✅ MongoDB connection string saved!')
-        toast.success('MongoDB configuration saved')
-      } else {
-        setTestResult('❌ Please enter MongoDB URI')
-        toast.error('MongoDB URI is required')
-      }
-    }, 1000)
+  const toggleShowKey = (providerId: string) => {
+    setShowKey(prev => ({ ...prev, [providerId]: !prev[providerId] }))
+  }
+
+  const getProviderIcon = (providerId: string) => {
+    switch (providerId) {
+      case 'groq': return <Zap className="w-5 h-5 text-yellow-500" />
+      case 'openai': return <Brain className="w-5 h-5 text-green-500" />
+      case 'google': return <Globe className="w-5 h-5 text-blue-500" />
+      case 'ollama': return <Server className="w-5 h-5 text-purple-500" />
+      default: return <Key className="w-5 h-5 text-gray-500" />
+    }
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-600 mt-1">Configure AI providers and system settings</p>
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="flex items-center gap-3 mb-6">
+        <Brain className="w-8 h-8 text-indigo-600" />
+        <h1 className="text-3xl font-bold text-gray-900">AI Settings</h1>
       </div>
 
-      {/* Tabs */}
-      <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg">
-        {tabs.map((tab) => {
-          const Icon = tab.icon
-          return (
+      {message && (
+        <div className={`mb-4 p-3 rounded-lg ${
+          message.includes('Error') ? 'bg-red-50 text-red-700 border border-red-200' :
+          message.includes('active') ? 'bg-green-50 text-green-700 border border-green-200' :
+          'bg-blue-50 text-blue-700 border border-blue-200'
+        }`}>
+          {message}
+        </div>
+      )}
+
+      {/* LLM Mode */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 mb-6">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">LLM Mode</h2>
+        <div className="flex gap-3">
+          {['auto', 'cloud', 'local'].map((mode) => (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+              key={mode}
+              onClick={() => handleSetLlmMode(mode)}
+              className={`px-4 py-2 rounded-lg capitalize ${
+                llmMode === mode
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              <Icon className="w-4 h-4 mr-2" />
-              {tab.label}
+              {mode}
             </button>
-          )
-        })}
+          ))}
+        </div>
+        <p className="text-sm text-gray-500 mt-2">
+          Auto: Automatically selects the best available provider
+        </p>
       </div>
 
-      {/* AI Providers Tab */}
-      {activeTab === 'ai' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-lg font-medium text-gray-900">AI Providers</h2>
-                <p className="text-sm text-gray-500">Configure API keys for AI models</p>
-              </div>
-              <button
-                onClick={handleSaveProviders}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center text-sm"
-              >
-                <Save className="w-4 h-4 mr-2" />
-                Save All
-              </button>
-            </div>
+      {/* Active Provider */}
+      {activeProvider && (
+        <div className="bg-green-50 border border-green-200 p-4 rounded-xl mb-6">
+          <div className="flex items-center gap-2">
+            <Check className="w-5 h-5 text-green-600" />
+            <span className="font-medium text-green-800">
+              Active Provider: {providers.find(p => p.id === activeProvider)?.name}
+            </span>
+          </div>
+        </div>
+      )}
 
-            <div className="space-y-4">
-              {providers.map((provider) => (
-                <div
-                  key={provider.id}
-                  className={`border rounded-lg p-4 transition-colors ${
-                    provider.isActive ? 'border-primary-200 bg-primary-50' : 'border-gray-200'
+      {/* Providers List */}
+      <div className="space-y-4">
+        {providers.map((provider) => (
+          <div
+            key={provider.id}
+            className={`bg-white p-6 rounded-xl shadow-sm border ${
+              provider.is_active ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-gray-200'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                {getProviderIcon(provider.id)}
+                <div>
+                  <h3 className="font-semibold text-gray-900">{provider.name}</h3>
+                  <p className="text-sm text-gray-500">{provider.base_url}</p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleTestProvider(provider.id)}
+                  disabled={testing === provider.id || !provider.api_key}
+                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-50 flex items-center gap-1"
+                >
+                  <RefreshCw className={`w-3 h-3 ${testing === provider.id ? 'animate-spin' : ''}`} />
+                  {testing === provider.id ? 'Testing...' : 'Test'}
+                </button>
+                <button
+                  onClick={() => handleSetActive(provider.id)}
+                  disabled={!provider.api_key || provider.is_active}
+                  className={`px-3 py-1.5 text-sm rounded-lg flex items-center gap-1 ${
+                    provider.is_active
+                      ? 'bg-green-100 text-green-700 cursor-default'
+                      : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-3 h-3 rounded-full ${
-                        provider.isActive ? 'bg-green-500' : 'bg-gray-300'
-                      }`} />
-                      <h3 className="font-medium text-gray-900">{provider.name}</h3>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => handleTestConnection(provider)}
-                        className="px-3 py-1 text-sm text-primary-600 hover:bg-primary-50 rounded-lg flex items-center"
-                      >
-                        <TestTube className="w-4 h-4 mr-1" />
-                        Test
-                      </button>
-                      <label className="flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={provider.isActive}
-                          onChange={() => toggleProvider(provider.id)}
-                          className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
-                        />
-                        <span className="ml-2 text-sm text-gray-700">Active</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        API Key
-                      </label>
-                      <input
-                        type="password"
-                        value={provider.keyValue}
-                        onChange={(e) => updateProviderKey(provider.id, e.target.value)}
-                        placeholder={`Enter ${provider.name} API key`}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Base URL
-                        </label>
-                        <input
-                          type="text"
-                          value={provider.baseUrl}
-                          readOnly
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Default Model
-                        </label>
-                        <select className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm">
-                          {provider.models.map((model) => (
-                            <option key={model} value={model}>{model}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Test Result */}
-          {testResult && (
-            <div className={`p-4 rounded-lg ${
-              testResult.includes('✅') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-            }`}>
-              {testResult}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Database Tab */}
-      {activeTab === 'database' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-lg font-medium text-gray-900">MongoDB Connection</h2>
-                <p className="text-sm text-gray-500">Configure database connection</p>
-              </div>
-              <button
-                onClick={handleSaveMongo}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors flex items-center text-sm"
-              >
-                <Save className="w-4 h-4 mr-2" />
-                Save
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  MongoDB URI
-                </label>
-                <input
-                  type="password"
-                  value={mongoUri}
-                  onChange={(e) => setMongoUri(e.target.value)}
-                  placeholder="mongodb+srv://username:password@cluster.mongodb.net/database"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 text-sm"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Format: mongodb+srv://username:password@cluster.mongodb.net/database
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Database Name
-                </label>
-                <input
-                  type="text"
-                  value="ai_startup"
-                  readOnly
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm text-gray-500"
-                />
-              </div>
-
-              <button
-                onClick={handleTestMongo}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center text-sm"
-              >
-                <TestTube className="w-4 h-4 mr-2" />
-                Test Connection
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* General Tab */}
-      {activeTab === 'general' && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h2 className="text-lg font-medium text-gray-900 mb-4">General Settings</h2>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                <div>
-                  <h3 className="font-medium text-gray-900">Auto-deploy</h3>
-                  <p className="text-sm text-gray-500">Automatically deploy on push</p>
-                </div>
-                <label className="flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    defaultChecked
-                    className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">Enabled</span>
-                </label>
-              </div>
-
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                <div>
-                  <h3 className="font-medium text-gray-900">Debug Mode</h3>
-                  <p className="text-sm text-gray-500">Show detailed error messages</p>
-                </div>
-                <label className="flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-700">Enabled</span>
-                </label>
-              </div>
-
-              <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                <div>
-                  <h3 className="font-medium text-gray-900">Clear Local Data</h3>
-                  <p className="text-sm text-gray-500">Remove all local storage data</p>
-                </div>
-                <button
-                  onClick={() => {
-                    localStorage.clear()
-                    toast.success('Local data cleared')
-                  }}
-                  className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm flex items-center"
-                >
-                  <Trash2 className="w-4 h-4 mr-1" />
-                  Clear
+                  {provider.is_active ? (
+                    <><Check className="w-3 h-3" /> Active</>
+                  ) : (
+                    'Set Active'
+                  )}
                 </button>
               </div>
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* API Key */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">API Key</label>
+                <div className="flex gap-2">
+                  <input
+                    type={showKey[provider.id] ? 'text' : 'password'}
+                    value={provider.api_key}
+                    onChange={(e) => handleUpdateProvider(provider.id, { api_key: e.target.value })}
+                    placeholder="Enter API key"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  />
+                  <button
+                    onClick={() => toggleShowKey(provider.id)}
+                    className="px-3 py-2 text-sm bg-gray-100 rounded-lg hover:bg-gray-200"
+                  >
+                    {showKey[provider.id] ? 'Hide' : 'Show'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Model */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
+                <input
+                  type="text"
+                  value={provider.default_model}
+                  onChange={(e) => handleUpdateProvider(provider.id, { default_model: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+
+              {/* Temperature */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Temperature: {provider.temperature}
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={provider.temperature}
+                  onChange={(e) => handleUpdateProvider(provider.id, { temperature: parseFloat(e.target.value) })}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Max Tokens */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Max Tokens</label>
+                <input
+                  type="number"
+                  value={provider.max_tokens}
+                  onChange={(e) => handleUpdateProvider(provider.id, { max_tokens: parseInt(e.target.value) })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+            </div>
+
+            {!provider.api_key && provider.id !== 'ollama' && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-amber-600">
+                <AlertTriangle className="w-4 h-4" />
+                <span>No API key configured. Add a key to enable this provider.</span>
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        ))}
+      </div>
     </div>
   )
 }

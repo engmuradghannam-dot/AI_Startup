@@ -98,3 +98,21 @@ async def groq_status():
             "message": str(e),
             "api_key_set": False,
         }
+
+
+@router.get("/debug")
+async def debug_info():
+    """Debug endpoint to check environment variables and configuration."""
+    from app.config import get_settings
+    settings = get_settings()
+
+    return {
+        "groq_api_key_set": bool(settings.groq_api_key and settings.groq_api_key != "your_groq_api_key_here"),
+        "groq_api_key_length": len(settings.groq_api_key) if settings.groq_api_key else 0,
+        "groq_api_key_prefix": settings.groq_api_key[:10] + "..." if settings.groq_api_key else None,
+        "groq_base_url": settings.groq_base_url,
+        "groq_default_model": settings.groq_default_model,
+        "llm_mode": settings.llm_mode,
+        "environment": settings.environment,
+        "port": settings.port,
+    }
