@@ -12,7 +12,7 @@ WORKDIR /app/frontend
 # Copy and install frontend deps
 COPY frontend/package.json ./
 COPY frontend/package-lock.json* ./
-RUN npm install
+RUN npm install --prefer-offline
 
 # Copy frontend source and build
 COPY frontend/ ./
