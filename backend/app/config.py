@@ -10,8 +10,20 @@ class Settings(BaseSettings):
     mongodb_uri: str = os.getenv("MONGODB_URI", "mongodb+srv://engmuradghannam_db_user:IWqsSLrcTgnwdgpD@cluster0.ouxl0wd.mongodb.net/ai_startup?retryWrites=true&w=majority")
     database_name: str = os.getenv("DATABASE_NAME", "ai_startup")
 
-    # Groq API
+    # Groq API (optional - fallback)
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
+
+    # Local LLM (Ollama)
+    ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    ollama_default_model: str = os.getenv("OLLAMA_DEFAULT_MODEL", "phi4-mini")
+    ollama_fallback_model: str = os.getenv("OLLAMA_FALLBACK_MODEL", "qwen3:0.6b")
+
+    # LocalAI (alternative local provider)
+    localai_host: str = os.getenv("LOCALAI_HOST", "http://localhost:8080")
+    localai_enabled: bool = os.getenv("LOCALAI_ENABLED", "false").lower() == "true"
+
+    # LLM Mode: "local" | "groq" | "auto" (auto tries local first, then groq)
+    llm_mode: str = os.getenv("LLM_MODE", "auto")
 
     # Redis
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379")

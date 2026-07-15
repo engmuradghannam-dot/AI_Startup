@@ -3,36 +3,12 @@ import { useQuery } from 'react-query'
 import { 
   Send, Bot, User, Settings, Mic, MicOff, Paperclip, 
   Image, Video, FileText, Monitor, X, Volume2, VolumeX,
-  Brain, Sparkles, Trash2, Download
+  Brain, Sparkles, Trash2, Download, Cpu, Cloud, Zap,
+  Server, CheckCircle, AlertCircle, Loader2
 } from 'lucide-react'
-import { agentsApi } from '../services/api'
+import { aiChatApi, localLlmApi } from '../services/api'
 import axios from 'axios'
 import toast from 'react-hot-toast'
-
-// Local storage helpers
-const getStoredAgents = () => {
-  try {
-    const stored = localStorage.getItem('ai_startup_agents')
-    return stored ? JSON.parse(stored) : []
-  } catch {
-    return []
-  }
-}
-
-const getStoredProviders = () => {
-  try {
-    const stored = localStorage.getItem('ai_startup_providers')
-    return stored ? JSON.parse(stored) : []
-  } catch {
-    return []
-  }
-}
-
-const getActiveProvider = () => {
-  const providers = getStoredProviders()
-  const active = providers.find((p: any) => p.isActive)
-  return active || providers[0] || { id: 'huggingface', name: 'Hugging Face (FREE)', models: ['microsoft/DialoGPT-medium'], keyValue: '' }
-}
 
 interface ChatMessage {
   id: string
@@ -41,37 +17,69 @@ interface ChatMessage {
   agentName?: string
   agentId?: string
   timestamp: string
-  attachments?: Attachment[]
-  voiceUrl?: string
-  isVoice?: boolean
+  source?: string
+  provider?: string
+  agentTrace?: any[]
 }
 
-interface Attachment {
+interface AIModel {
   id: string
-  type: 'image' | 'video' | 'document' | 'audio'
   name: string
-  url: string
-  size: number
+  provider: string
+  size: string
+  parameters: string
+  speed: string
+  capabilities: string[]
+  best_for: string[]
+  ram_required_mb: number
+  installed?: boolean
+}
+
+interface AIAgent {
+  name: string
+  specialty: string
+  description: string
+  skills: string[]
+  model: string
 }
 
 export default function AgentChat() {
   const [message, setMessage] = useState('')
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([])
-  const [selectedAgent, setSelectedAgent] = useState<any>(null)
+  const [selectedAgent, setSelectedAgent] = useState<string>('auto')
+  const [selectedModel, setSelectedModel] = useState<string>('')
+  const [agentMode, setAgentMode] = useState<string>('auto')
   const [isLoading, setIsLoading] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
-  const [isSpeaking, setIsSpeaking] = useState(false)
-  const [attachments, setAttachments] = useState<Attachment[]>([])
-  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false)
-  const [showScreenCapture, setShowScreenCapture] = useState(false)
-  const [agentKnowledge, setAgentKnowledge] = useState<any[]>([])
-  const [showKnowledge, setShowKnowledge] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
+  const [showAgentTrace, setShowAgentTrace] = useState(false)
+  const [lastTrace, setLastTrace] = useState<any[]>([])
+  const [localLlmStatus, setLocalLlmStatus] = useState<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
 
-  const agents = getStoredAgents()
+  // Fetch AI health status
+  const { data: healthData } = useQuery(
+    'ai-health',
+    () => aiChatApi.getHealth(),
+    { refetchInterval: 30000 }
+  )
+
+  // Fetch available models
+  const { data: modelsData } = useQuery(
+    'ai-models',
+    () => aiChatApi.getModels(),
+    { refetchInterval: 60000 }
+  )
+
+  // Fetch available agents
+  const { data: agentsData } = useQuery(
+    'ai-agents',
+    () => aiChatApi.getAgents(),
+    { refetchInterval: 60000 }
+  )
+
+  const models: AIModel[] = modelsData || []
+  const agents: AIAgent[] = agentsData || []
 
   // Scroll to bottom
   const scrollToBottom = () => {
@@ -82,614 +90,417 @@ export default function AgentChat() {
     scrollToBottom()
   }, [chatHistory])
 
-  // Select first agent by default
+  // Check local LLM status
   useEffect(() => {
-    if (agents.length > 0 && !selectedAgent) {
-      setSelectedAgent(agents[0])
-    }
-  }, [agents, selectedAgent])
-
-  // Load agent knowledge
-  const loadAgentKnowledge = useCallback(async (agentId: string) => {
-    try {
-      const res = await axios.get(`/api/training/learn/${agentId}`)
-      if (res.data && res.data.knowledge) {
-        setAgentKnowledge(res.data.knowledge)
+    const checkLocalLlm = async () => {
+      try {
+        const status = await localLlmApi.getHealth()
+        setLocalLlmStatus(status)
+      } catch (e) {
+        setLocalLlmStatus({ status: 'unavailable' })
       }
-    } catch (e) {
-      console.log('Knowledge load skipped:', e)
     }
+    checkLocalLlm()
   }, [])
 
-  useEffect(() => {
-    if (selectedAgent?.id) {
-      loadAgentKnowledge(selectedAgent.id)
-    }
-  }, [selectedAgent, loadAgentKnowledge])
+  const generateId = () => Math.random().toString(36).substring(2, 10)
 
   const handleSend = async () => {
-    if (!message.trim() && attachments.length === 0) return
-    if (!selectedAgent) {
-      toast.error('Please select an agent first')
-      return
-    }
+    if (!message.trim() || isLoading) return
 
-    const userMsg: ChatMessage = {
-      id: `user_${Date.now()}`,
+    const userMessage: ChatMessage = {
+      id: generateId(),
       role: 'user',
       content: message,
       timestamp: new Date().toISOString(),
-      attachments: attachments.length > 0 ? [...attachments] : undefined,
     }
 
-    setChatHistory(prev => [...prev, userMsg])
+    setChatHistory(prev => [...prev, userMessage])
     setMessage('')
-    setAttachments([])
     setIsLoading(true)
 
     try {
-      const provider = getActiveProvider()
-      const messages = [
-        { role: 'system', content: `You are ${selectedAgent.name}, an AI agent. ${selectedAgent.description || ''}` },
-        ...chatHistory.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
-        { role: 'user', content: message },
-      ]
+      const messages = chatHistory
+        .filter(m => m.role !== 'system')
+        .map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role, content: m.content }))
+        .concat([{ role: 'user', content: message }])
 
-      const response = await axios.post('/ai-chat/chat', {
-        provider: provider.id,
-        model: provider.models[0],
-        messages: messages,
-        agent_name: selectedAgent.name,
-        api_key: provider.keyValue,
+      const response = await aiChatApi.chat(messages, {
+        model: selectedModel || undefined,
+        agent_mode: agentMode,
       })
 
-      const agentMsg: ChatMessage = {
-        id: `agent_${Date.now()}`,
+      const assistantMessage: ChatMessage = {
+        id: generateId(),
         role: 'agent',
-        content: response.data.response || 'I apologize, I could not process that.',
-        agentName: selectedAgent.name,
-        agentId: selectedAgent.id,
+        content: response.choices?.[0]?.message?.content || 'No response',
         timestamp: new Date().toISOString(),
+        source: response.source,
+        provider: response.provider,
+        agentTrace: response.agent_trace,
       }
 
-      setChatHistory(prev => [...prev, agentMsg])
-
-      // Learn from this conversation
-      try {
-        await axios.post('/api/training/learn/from-chat', {
-          agent_id: selectedAgent.id,
-          conversation: JSON.stringify({ user: message, agent: response.data.response }),
-          user_feedback: null,
-        })
-      } catch (e) {
-        // Silent fail for learning
+      if (response.agent_trace) {
+        setLastTrace(response.agent_trace)
       }
 
+      setChatHistory(prev => [...prev, assistantMessage])
     } catch (error: any) {
-      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
-      setChatHistory(prev => [...prev, {
-        id: `error_${Date.now()}`,
+      console.error('Chat error:', error)
+      toast.error(error.response?.data?.detail || 'Failed to get response')
+
+      const errorMessage: ChatMessage = {
+        id: generateId(),
         role: 'system',
-        content: `Error: ${errorMsg}`,
+        content: `Error: ${error.response?.data?.detail || error.message}. Make sure Ollama is running locally or configure GROQ_API_KEY.`,
         timestamp: new Date().toISOString(),
-      }])
+      }
+      setChatHistory(prev => [...prev, errorMessage])
     } finally {
       setIsLoading(false)
     }
   }
 
-  // Voice Recording
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream)
-      mediaRecorderRef.current = mediaRecorder
-      audioChunksRef.current = []
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
-        }
-      }
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' })
-        await processVoiceAudio(audioBlob)
-        stream.getTracks().forEach(track => track.stop())
-      }
-
-      mediaRecorder.start()
-      setIsRecording(true)
-    } catch (e) {
-      toast.error('Microphone access denied or not available')
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
     }
   }
 
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-    }
-  }
-
-  const processVoiceAudio = async (audioBlob: Blob) => {
-    setIsLoading(true)
-    try {
-      const formData = new FormData()
-      formData.append('audio', audioBlob, 'voice_message.wav')
-      formData.append('language', 'en')
-      if (selectedAgent?.id) {
-        formData.append('agent_id', selectedAgent.id)
-      }
-
-      // Speech-to-Text
-      const sttRes = await axios.post('/api/voice/speech-to-text', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-
-      const transcribedText = sttRes.data.text || '[Voice message]'
-
-      // Add voice message to chat
-      const voiceMsg: ChatMessage = {
-        id: `voice_${Date.now()}`,
-        role: 'user',
-        content: transcribedText,
-        timestamp: new Date().toISOString(),
-        isVoice: true,
-      }
-
-      setChatHistory(prev => [...prev, voiceMsg])
-      setMessage(transcribedText)
-
-      // Auto-send after voice transcription
-      await handleSend()
-
-    } catch (e) {
-      toast.error('Voice processing failed')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  // Text-to-Speech
-  const speakText = async (text: string) => {
-    try {
-      setIsSpeaking(true)
-
-      // Use browser's built-in TTS
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(text)
-        utterance.lang = 'en-US'
-        utterance.onend = () => setIsSpeaking(false)
-        utterance.onerror = () => setIsSpeaking(false)
-        window.speechSynthesis.speak(utterance)
-      } else {
-        // Fallback to API
-        const res = await axios.post('/api/voice/text-to-speech', {
-          text,
-          voice: 'default',
-          language: 'en',
-        })
-
-        if (res.data.audio_url) {
-          const audio = new Audio(res.data.audio_url)
-          audio.onended = () => setIsSpeaking(false)
-          audio.play()
-        }
-      }
-    } catch (e) {
-      setIsSpeaking(false)
-    }
-  }
-
-  const stopSpeaking = () => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel()
-    }
-    setIsSpeaking(false)
-  }
-
-  // File Upload
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video' | 'document') => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('agent_id', selectedAgent?.id || 'default')
-    formData.append('description', `Uploaded ${type}: ${file.name}`)
-
-    try {
-      const res = await axios.post('/api/training/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-
-      if (res.data.status === 'uploaded') {
-        const newAttachment: Attachment = {
-          id: res.data.entry_id,
-          type,
-          name: file.name,
-          url: URL.createObjectURL(file),
-          size: file.size,
-        }
-        setAttachments(prev => [...prev, newAttachment])
-        toast.success(`${type} uploaded successfully`)
-      }
-    } catch (e) {
-      toast.error('Upload failed')
-    }
-  }
-
-  // Screen Capture
-  const captureScreen = async () => {
-    try {
-      // @ts-ignore
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: false,
-      } as any)
-
-      const video = document.createElement('video')
-      video.srcObject = stream
-      await video.play()
-
-      const canvas = document.createElement('canvas')
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      const ctx = canvas.getContext('2d')
-      ctx?.drawImage(video, 0, 0)
-
-      const screenshot = canvas.toDataURL('image/png')
-
-      // Stop stream
-      stream.getTracks().forEach(track => track.stop())
-
-      // Send to backend for learning
-      await axios.post('/api/training/learn/screen', {
-        agent_id: selectedAgent?.id || 'default',
-        description: 'Screen capture from Agent Chat',
-        screen_data: screenshot,
-      })
-
-      toast.success('Screen captured and saved for learning')
-      setShowScreenCapture(false)
-    } catch (e) {
-      toast.error('Screen capture failed or cancelled')
-    }
-  }
-
-  // Clear chat
   const clearChat = () => {
     setChatHistory([])
+    setLastTrace([])
     toast.success('Chat cleared')
   }
 
-  // Delete knowledge entry
-  const deleteKnowledge = async (entryId: string) => {
-    try {
-      await axios.delete(`/api/training/learn/${selectedAgent.id}/${entryId}`)
-      setAgentKnowledge(prev => prev.filter(k => k.id !== entryId))
-      toast.success('Knowledge deleted')
-    } catch (e) {
-      toast.error('Failed to delete')
-    }
+  const exportChat = () => {
+    const data = JSON.stringify(chatHistory, null, 2)
+    const blob = new Blob([data], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `chat-export-${new Date().toISOString()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('Chat exported')
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Agent Chat</h1>
-          <p className="text-gray-600 mt-1">Chat with your AI agents - Voice, Files & Screen Capture</p>
-        </div>
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => setShowKnowledge(!showKnowledge)}
-            className={`p-2 rounded-lg transition-colors ${showKnowledge ? 'bg-primary-100 text-primary-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-            title="Agent Knowledge"
-          >
-            <Brain className="w-5 h-5" />
-          </button>
-          <button
-            onClick={clearChat}
-            className="p-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-600 transition-colors"
-            title="Clear Chat"
-          >
-            <Trash2 className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
+    <div className="flex h-[calc(100vh-4rem)]">
+      {/* Sidebar */}
+      <div className="w-80 bg-gray-900 border-r border-gray-800 flex flex-col">
+        {/* Status Panel */}
+        <div className="p-4 border-b border-gray-800">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+            AI Status
+          </h3>
 
-      <div className="flex gap-6">
-        {/* Left Sidebar - Agents */}
-        <div className="w-80 space-y-4">
-          {/* Agent Selector */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <h3 className="font-medium text-gray-900 mb-3 flex items-center">
-              <Bot className="w-5 h-5 mr-2" />
-              Available Agents ({agents.length})
-            </h3>
-            <div className="space-y-2">
-              {agents.map((agent: any) => (
-                <button
-                  key={agent.id}
-                  onClick={() => setSelectedAgent(agent)}
-                  className={`w-full flex items-center p-3 rounded-lg text-left transition-colors ${
-                    selectedAgent?.id === agent.id
-                      ? 'bg-primary-50 border-2 border-primary-500'
-                      : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100'
-                  }`}
-                >
-                  <Bot className="w-8 h-8 mr-3 text-primary-600" />
-                  <div>
-                    <div className="font-medium text-gray-900">{agent.name}</div>
-                    <div className="text-xs text-gray-500">{agent.role || 'general'}</div>
-                  </div>
-                  {selectedAgent?.id === agent.id && (
-                    <Sparkles className="w-4 h-4 ml-auto text-primary-500" />
-                  )}
-                </button>
-              ))}
-              {agents.length === 0 && (
-                <p className="text-gray-500 text-sm text-center py-4">No agents available. Create agents first.</p>
+          {/* Local LLM Status */}
+          <div className="mb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Cpu className="w-4 h-4 text-blue-400" />
+              <span className="text-sm text-gray-300">Local LLM</span>
+              {localLlmStatus?.status === 'healthy' ? (
+                <CheckCircle className="w-4 h-4 text-green-400" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-yellow-400" />
               )}
+            </div>
+            <div className="text-xs text-gray-500 ml-6">
+              {localLlmStatus?.provider || 'Not connected'}
             </div>
           </div>
 
-          {/* Agent Knowledge Panel */}
-          {showKnowledge && selectedAgent && (
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
-              <h3 className="font-medium text-gray-900 mb-3 flex items-center">
-                <Brain className="w-5 h-5 mr-2" />
-                Agent Knowledge ({agentKnowledge.length})
-              </h3>
-              <div className="space-y-2 max-h-64 overflow-y-auto">
-                {agentKnowledge.map((k: any) => (
-                  <div key={k.id} className="p-2 bg-gray-50 rounded text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">{k.content_type || 'text'}</span>
-                      <button onClick={() => deleteKnowledge(k.id)} className="text-red-400 hover:text-red-600">
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                    <p className="text-gray-700 mt-1 line-clamp-2">{k.content}</p>
-                  </div>
-                ))}
-                {agentKnowledge.length === 0 && (
-                  <p className="text-gray-400 text-sm text-center">No knowledge yet</p>
-                )}
-              </div>
+          {/* Groq Status */}
+          <div className="mb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <Cloud className="w-4 h-4 text-purple-400" />
+              <span className="text-sm text-gray-300">Groq Cloud</span>
+              {healthData?.groq?.available ? (
+                <CheckCircle className="w-4 h-4 text-green-400" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-gray-500" />
+              )}
+            </div>
+            <div className="text-xs text-gray-500 ml-6">
+              {healthData?.groq?.available ? 'Available' : 'Not configured'}
+            </div>
+          </div>
+
+          {/* Mode */}
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-yellow-400" />
+            <span className="text-sm text-gray-300">Mode:</span>
+            <span className="text-xs px-2 py-0.5 bg-blue-900 text-blue-300 rounded-full">
+              {healthData?.mode || 'auto'}
+            </span>
+          </div>
+        </div>
+
+        {/* Models */}
+        <div className="p-4 border-b border-gray-800">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+            Models
+          </h3>
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-blue-500"
+          >
+            <option value="">Auto-select</option>
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name} {model.installed ? '✓' : ''} ({model.provider})
+              </option>
+            ))}
+          </select>
+
+          {models.length === 0 && (
+            <div className="mt-2 text-xs text-yellow-500">
+              No models detected. Install Ollama and pull models.
             </div>
           )}
         </div>
 
-        {/* Right - Chat Area */}
-        <div className="flex-1 flex flex-col h-[600px]">
-          <div className="bg-white rounded-lg border border-gray-200 flex flex-col h-full">
-            {/* Chat Header */}
-            <div className="border-b border-gray-200 p-4 flex items-center justify-between">
-              <div className="flex items-center">
-                {selectedAgent ? (
-                  <>
-                    <Bot className="w-6 h-6 mr-2 text-primary-600" />
-                    <div>
-                      <div className="font-medium text-gray-900">{selectedAgent.name}</div>
-                      <div className="text-xs text-gray-500">{selectedAgent.role || 'general'} • active</div>
-                    </div>
-                  </>
-                ) : (
-                  <span className="text-gray-500">Select an agent</span>
-                )}
+        {/* Agent Mode */}
+        <div className="p-4 border-b border-gray-800">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+            Agent Mode
+          </h3>
+          <select
+            value={agentMode}
+            onChange={(e) => setAgentMode(e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-blue-500"
+          >
+            <option value="auto">Auto (detect complexity)</option>
+            <option value="single">Single Agent (fast)</option>
+            <option value="multi">Multi-Agent (hierarchical)</option>
+            <option value="parallel">Multi-Agent (parallel)</option>
+            <option value="swarm">Swarm (collaborative)</option>
+          </select>
+        </div>
+
+        {/* Agents */}
+        <div className="p-4 flex-1 overflow-y-auto">
+          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+            Specialized Agents
+          </h3>
+          <div className="space-y-2">
+            {agents.map((agent) => (
+              <div
+                key={agent.name}
+                className="p-3 bg-gray-800 rounded-lg border border-gray-700 hover:border-blue-500 transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <Bot className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm font-medium text-gray-200 capitalize">
+                    {agent.name}
+                  </span>
+                </div>
+                <div className="text-xs text-gray-500">{agent.specialty}</div>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {agent.skills.slice(0, 3).map((skill) => (
+                    <span
+                      key={skill}
+                      className="text-xs px-1.5 py-0.5 bg-gray-700 text-gray-400 rounded"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div className="flex items-center space-x-2">
-                {isSpeaking && (
-                  <button onClick={stopSpeaking} className="p-2 text-red-500 hover:bg-red-50 rounded-lg">
-                    <VolumeX className="w-5 h-5" />
-                  </button>
-                )}
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Chat Area */}
+      <div className="flex-1 flex flex-col bg-gray-950">
+        {/* Header */}
+        <div className="h-14 border-b border-gray-800 flex items-center justify-between px-6">
+          <div className="flex items-center gap-3">
+            <Brain className="w-6 h-6 text-blue-400" />
+            <div>
+              <h1 className="text-lg font-semibold text-white">AI Agent Chat</h1>
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                <span>Local LLM First</span>
+                <span>•</span>
+                <span>Multi-Agent</span>
+                <span>•</span>
+                <span>10 Skills</span>
               </div>
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {lastTrace.length > 0 && (
+              <button
+                onClick={() => setShowAgentTrace(!showAgentTrace)}
+                className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                title="View Agent Trace"
+              >
+                <Sparkles className="w-5 h-5" />
+              </button>
+            )}
+            <button
+              onClick={clearChat}
+              className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded-lg transition-colors"
+              title="Clear Chat"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+            <button
+              onClick={exportChat}
+              className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+              title="Export Chat"
+            >
+              <Download className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {chatHistory.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex items-start space-x-3 ${
-                    msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''
-                  }`}
-                >
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                    msg.role === 'user' ? 'bg-primary-600' : 
-                    msg.role === 'system' ? 'bg-red-100' : 'bg-gray-200'
-                  }`}>
-                    {msg.role === 'user' ? (
-                      <User className="w-5 h-5 text-white" />
-                    ) : msg.role === 'system' ? (
-                      <span className="text-red-500 text-lg">⚠️</span>
-                    ) : (
-                      <Bot className="w-5 h-5 text-gray-700" />
+        {/* Agent Trace Panel */}
+        {showAgentTrace && lastTrace.length > 0 && (
+          <div className="h-48 bg-gray-900 border-b border-gray-800 overflow-y-auto p-4">
+            <h4 className="text-sm font-semibold text-gray-400 mb-2">Agent Execution Trace</h4>
+            <div className="space-y-2">
+              {lastTrace.map((trace, idx) => (
+                <div key={idx} className="p-2 bg-gray-800 rounded text-xs">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Bot className="w-3 h-3 text-blue-400" />
+                    <span className="font-medium text-gray-300 capitalize">{trace.agent}</span>
+                    {trace.provider && (
+                      <span className="text-gray-500">({trace.provider})</span>
                     )}
                   </div>
-                  <div className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                    msg.role === 'user' 
-                      ? 'bg-primary-600 text-white' 
-                      : msg.role === 'system'
-                      ? 'bg-red-50 text-red-900 border border-red-200'
-                      : 'bg-gray-100 text-gray-900'
-                  }`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-medium opacity-75">
-                        {msg.role === 'user' ? 'You' : msg.agentName || 'System'}
-                      </span>
-                      {msg.isVoice && <Mic className="w-3 h-3 opacity-50" />}
-                    </div>
-                    <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
-
-                    {/* Attachments */}
-                    {msg.attachments && msg.attachments.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {msg.attachments.map(att => (
-                          <div key={att.id} className="flex items-center space-x-2 bg-white/20 rounded p-2">
-                            {att.type === 'image' && <Image className="w-4 h-4" />}
-                            {att.type === 'video' && <Video className="w-4 h-4" />}
-                            {att.type === 'document' && <FileText className="w-4 h-4" />}
-                            <span className="text-xs">{att.name}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Agent actions */}
-                    {msg.role === 'agent' && (
-                      <div className="mt-2 flex items-center space-x-2">
-                        <button
-                          onClick={() => speakText(msg.content)}
-                          className="p-1 rounded hover:bg-white/20 transition-colors"
-                          title="Read aloud"
-                        >
-                          <Volume2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                  <div className="text-gray-400 ml-5">{trace.thought_preview || trace.thought?.substring(0, 100)}...</div>
                 </div>
               ))}
-
-              {isLoading && (
-                <div className="flex items-center justify-center space-x-2 py-4">
-                  <div className="w-3 h-3 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <div className="w-3 h-3 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <div className="w-3 h-3 bg-primary-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  <span className="ml-2 text-sm text-gray-500">Thinking...</span>
-                </div>
-              )}
-
-              {chatHistory.length === 0 && (
-                <div className="text-center text-gray-500 mt-20">
-                  <Bot className="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                  <p>Start a conversation</p>
-                  <p className="text-sm mt-1">Type, speak, or attach files</p>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
             </div>
+          </div>
+        )}
 
-            {/* Attachments Preview */}
-            {attachments.length > 0 && (
-              <div className="border-t border-gray-200 px-4 py-2 flex flex-wrap gap-2">
-                {attachments.map(att => (
-                  <div key={att.id} className="flex items-center space-x-2 bg-gray-100 rounded-lg px-3 py-1 text-sm">
-                    {att.type === 'image' && <Image className="w-4 h-4 text-blue-500" />}
-                    {att.type === 'video' && <Video className="w-4 h-4 text-red-500" />}
-                    {att.type === 'document' && <FileText className="w-4 h-4 text-green-500" />}
-                    <span className="text-gray-700">{att.name}</span>
-                    <button onClick={() => setAttachments(prev => prev.filter(a => a.id !== att.id))}>
-                      <X className="w-3 h-3 text-gray-400 hover:text-red-500" />
-                    </button>
-                  </div>
-                ))}
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {chatHistory.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+              <Brain className="w-16 h-16 mb-4 text-gray-700" />
+              <h2 className="text-xl font-semibold mb-2">Welcome to AI Agent Chat</h2>
+              <p className="text-center max-w-md mb-4">
+                Start a conversation with our multi-agent system powered by local LLMs.
+                The system automatically detects task complexity and routes to the right agents.
+              </p>
+              <div className="flex gap-2">
+                <span className="text-xs px-3 py-1 bg-gray-800 rounded-full">Local LLM</span>
+                <span className="text-xs px-3 py-1 bg-gray-800 rounded-full">4 Agents</span>
+                <span className="text-xs px-3 py-1 bg-gray-800 rounded-full">10 Skills</span>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Input Area */}
-            <div className="border-t border-gray-200 p-4">
-              <div className="flex items-end space-x-3">
-                {/* Attachment Button */}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
-                    className="p-2 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
-                  >
-                    <Paperclip className="w-5 h-5" />
-                  </button>
-
-                  {showAttachmentMenu && (
-                    <div className="absolute bottom-full left-0 mb-2 bg-white rounded-lg shadow-lg border border-gray-200 p-2 space-y-1 z-10">
-                      <button
-                        onClick={() => { fileInputRef.current?.click(); setShowAttachmentMenu(false) }}
-                        className="flex items-center space-x-2 w-full p-2 rounded hover:bg-gray-100 text-sm"
-                      >
-                        <Image className="w-4 h-4 text-blue-500" />
-                        <span>Image</span>
-                      </button>
-                      <button
-                        onClick={() => { fileInputRef.current?.click(); setShowAttachmentMenu(false) }}
-                        className="flex items-center space-x-2 w-full p-2 rounded hover:bg-gray-100 text-sm"
-                      >
-                        <Video className="w-4 h-4 text-red-500" />
-                        <span>Video</span>
-                      </button>
-                      <button
-                        onClick={() => { fileInputRef.current?.click(); setShowAttachmentMenu(false) }}
-                        className="flex items-center space-x-2 w-full p-2 rounded hover:bg-gray-100 text-sm"
-                      >
-                        <FileText className="w-4 h-4 text-green-500" />
-                        <span>Document</span>
-                      </button>
-                      <button
-                        onClick={() => { setShowAttachmentMenu(false); captureScreen() }}
-                        className="flex items-center space-x-2 w-full p-2 rounded hover:bg-gray-100 text-sm"
-                      >
-                        <Monitor className="w-4 h-4 text-purple-500" />
-                        <span>Screen Capture</span>
-                      </button>
-                    </div>
+          {chatHistory.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              {msg.role !== 'user' && (
+                <div className="w-8 h-8 rounded-lg bg-blue-900 flex items-center justify-center flex-shrink-0">
+                  {msg.role === 'system' ? (
+                    <AlertCircle className="w-4 h-4 text-yellow-400" />
+                  ) : (
+                    <Bot className="w-4 h-4 text-blue-400" />
                   )}
                 </div>
+              )}
 
-                {/* Voice Button */}
-                <button
-                  onClick={isRecording ? stopRecording : startRecording}
-                  className={`p-2 rounded-lg transition-colors ${
-                    isRecording 
-                      ? 'bg-red-100 text-red-600 animate-pulse' 
-                      : 'text-gray-500 hover:text-primary-600 hover:bg-primary-50'
-                  }`}
-                >
-                  {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                </button>
+              <div
+                className={`max-w-[70%] rounded-2xl px-4 py-3 ${
+                  msg.role === 'user'
+                    ? 'bg-blue-600 text-white'
+                    : msg.role === 'system'
+                    ? 'bg-yellow-900/30 border border-yellow-800 text-yellow-200'
+                    : 'bg-gray-800 text-gray-200'
+                }`}
+              >
+                <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
 
-                {/* Text Input */}
-                <textarea
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      handleSend()
-                    }
-                  }}
-                  placeholder={isRecording ? 'Recording...' : `Message ${selectedAgent?.name || 'agent'}...`}
-                  disabled={isLoading || isRecording}
-                  rows={1}
-                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100 resize-none"
-                  style={{ minHeight: '40px', maxHeight: '120px' }}
-                />
+                {msg.source && (
+                  <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                    {msg.source === 'local' ? (
+                      <Cpu className="w-3 h-3" />
+                    ) : (
+                      <Cloud className="w-3 h-3" />
+                    )}
+                    <span>{msg.provider} ({msg.source})</span>
+                    {msg.agentTrace && (
+                      <span>• {msg.agentTrace.length} agents</span>
+                    )}
+                  </div>
+                )}
+              </div>
 
-                {/* Send Button */}
-                <button
-                  onClick={handleSend}
-                  disabled={isLoading || isRecording || (!message.trim() && attachments.length === 0)}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:bg-gray-300 flex items-center"
-                >
-                  <Send className="w-5 h-5" />
-                </button>
+              {msg.role === 'user' && (
+                <div className="w-8 h-8 rounded-lg bg-gray-700 flex items-center justify-center flex-shrink-0">
+                  <User className="w-4 h-4 text-gray-300" />
+                </div>
+              )}
+            </div>
+          ))}
+
+          {isLoading && (
+            <div className="flex gap-3">
+              <div className="w-8 h-8 rounded-lg bg-blue-900 flex items-center justify-center">
+                <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+              </div>
+              <div className="bg-gray-800 rounded-2xl px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <Sparkles className="w-4 h-4 animate-pulse" />
+                  <span>Thinking...</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input Area */}
+        <div className="border-t border-gray-800 p-4">
+          <div className="max-w-4xl mx-auto">
+            <div className="flex items-end gap-2 bg-gray-900 rounded-xl border border-gray-700 p-2">
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask anything... The AI will auto-detect complexity and use the right agents."
+                className="flex-1 bg-transparent text-white placeholder-gray-500 resize-none outline-none min-h-[44px] max-h-[200px] py-2 px-3"
+                rows={1}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!message.trim() || isLoading}
+                className="p-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
+              <div className="flex items-center gap-4">
+                <span>Press Enter to send</span>
+                <span>Shift+Enter for new line</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {healthData?.local?.status === 'healthy' && (
+                  <span className="flex items-center gap-1 text-green-400">
+                    <Server className="w-3 h-3" />
+                    Local LLM Active
+                  </span>
+                )}
               </div>
             </div>
           </div>
         </div>
       </div>
-
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        onChange={(e) => handleFileUpload(e, 'image')}
-        accept="image/*,video/*,.pdf,.doc,.docx,.txt"
-      />
     </div>
   )
 }

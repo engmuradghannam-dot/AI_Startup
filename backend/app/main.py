@@ -13,9 +13,9 @@ import logging
 try:
     from dotenv import load_dotenv
     load_dotenv()
-    print("✅ Loaded .env file")
+    print("Loaded .env file")
 except ImportError:
-    pass  # dotenv not installed, use Railway env vars
+    pass
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,9 +28,33 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    logger.info("🚀 AI Startup Server Starting...")
+    logger.info("AI Startup Server Starting...")
+
+    # Initialize local LLM service
+    try:
+        from app.services.local_llm_service import get_local_llm_service
+        local_llm = await get_local_llm_service()
+        if local_llm.is_available:
+            logger.info(f"Local LLM ready: {local_llm.provider}")
+            logger.info(f"Available models: {local_llm.available_models}")
+        else:
+            logger.warning("No local LLM provider available. Install Ollama or LocalAI.")
+    except Exception as e:
+        logger.warning(f"Local LLM initialization failed: {e}")
+
+    # Initialize multi-agent orchestrator
+    try:
+        from app.services.multi_agent_orchestrator import get_multi_agent_orchestrator
+        orchestrator = await get_multi_agent_orchestrator()
+        agents = orchestrator.list_agents()
+        logger.info(f"Multi-Agent Orchestrator ready with {len(agents)} agents")
+        for agent in agents:
+            logger.info(f"  - {agent['name']}: {agent['specialty']}")
+    except Exception as e:
+        logger.warning(f"Multi-agent initialization failed: {e}")
+
     yield
-    logger.info("🛑 AI Startup Server Shutting down...")
+    logger.info("AI Startup Server Shutting down...")
 
 # ============================================
 # FASTAPI APP
@@ -38,8 +62,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="AI Startup API",
-    description="Multi-Agent AI System with Groq, OpenAI, and more",
-    version="2.1.0",
+    description="Multi-Agent AI System with Local LLM (Ollama/LocalAI) + Groq Fallback",
+    version="3.0.0",
     lifespan=lifespan,
 )
 
@@ -64,9 +88,10 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "healthy",
-        "version": "2.1.0",
+        "version": "3.0.0",
         "mode": "production",
         "timestamp": "2026-07-15",
+        "features": ["local_llm", "multi_agent", "groq_fallback", "fable5_skills"],
     }
 
 @app.get("/api/health/")
@@ -74,123 +99,110 @@ async def api_health_check():
     """API health check endpoint."""
     return {
         "status": "healthy",
-        "version": "2.1.0",
-        "mode": "production",
-        "timestamp": "2026-07-15",
+        "version": "3.0.0",
+        "features": ["local_llm", "multi_agent", "groq_fallback", "fable5_skills"],
     }
 
 # ============================================
-# AI CHAT ROUTER (CRITICAL - load first!)
+# ROOT ENDPOINT
 # ============================================
 
-try:
-    from app.routers import ai_chat
-    app.include_router(ai_chat.router, tags=["ai-chat"])
-    logger.info("✅ ai_chat router loaded")
-except Exception as e:
-    logger.error(f"❌ Failed to load ai_chat router: {e}")
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {
+        "name": "AI Startup API",
+        "version": "3.0.0",
+        "description": "Multi-Agent AI System with Local LLM + Groq Fallback",
+        "docs": "/docs",
+        "health": "/health",
+        "features": {
+            "local_llm": "Ollama/LocalAI integration - FREE, no API keys",
+            "multi_agent": "4 specialized agents with skill integration",
+            "groq_fallback": "Cloud fallback when local is unavailable",
+            "fable5_skills": "10 advanced skills for agent intelligence",
+        },
+    }
 
 # ============================================
-# OTHER ROUTERS
+# ERROR HANDLERS
 # ============================================
 
-try:
-    from app.routers import agents
-    app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
-    logger.info("✅ agents router loaded")
-except Exception as e:
-    logger.warning(f"⚠️ Could not load agents router: {e}")
-
-try:
-    from app.routers import skills
-    app.include_router(skills.router, prefix="/api/skills", tags=["skills"])
-    logger.info("✅ skills router loaded")
-except Exception as e:
-    logger.warning(f"⚠️ Could not load skills router: {e}")
-
-try:
-    from app.routers import training
-    app.include_router(training.router, prefix="/api/training", tags=["training"])
-    logger.info("✅ training router loaded")
-except Exception as e:
-    logger.warning(f"⚠️ Could not load training router: {e}")
-
-try:
-    from app.routers import voice
-    app.include_router(voice.router, prefix="/api/voice", tags=["voice"])
-    logger.info("✅ voice router loaded")
-except Exception as e:
-    logger.warning(f"⚠️ Could not load voice router: {e}")
-
-try:
-    from app.routers import health
-    app.include_router(health.router, prefix="/api/health", tags=["health"])
-    logger.info("✅ health router loaded")
-except Exception as e:
-    logger.warning(f"⚠️ Could not load health router: {e}")
-
-# ============================================
-# STATIC FILES - Frontend
-# ============================================
-
-# Look for frontend_dist in multiple locations
-frontend_dist = None
-possible_paths = [
-    os.path.join(os.path.dirname(__file__), "frontend_dist"),  # app/frontend_dist
-    "/app/frontend_dist",  # Docker root
-    os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend_dist"),  # backend/frontend_dist
-]
-
-for path in possible_paths:
-    if os.path.exists(path):
-        frontend_dist = path
-        logger.info(f"✅ Found frontend_dist at: {path}")
-        break
-
-if frontend_dist and os.path.exists(frontend_dist):
-    assets_path = os.path.join(frontend_dist, "assets")
-    if os.path.exists(assets_path):
-        app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
-        logger.info(f"✅ Static files mounted from {assets_path}")
-    else:
-        logger.warning(f"⚠️ assets folder not found at {assets_path}")
-else:
-    logger.warning(f"⚠️ Frontend dist not found. Checked: {possible_paths}")
-
-# ============================================
-# CATCH-ALL ROUTE (MUST be last!)
-# ============================================
-
-@app.get("/{full_path:path}")
-async def catch_all(full_path: str):
-    """Catch-all route to serve frontend."""
-    if full_path.startswith("api/") or full_path.startswith("ai-chat/") or full_path.startswith("health/"):
-        return JSONResponse(
-            status_code=404,
-            content={"detail": f"API endpoint /{full_path} not found"}
-        )
-
-    # Try to serve index.html from found frontend_dist
-    if frontend_dist:
-        index_path = os.path.join(frontend_dist, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler."""
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
-        status_code=200,
-        content={
-            "status": "AI Startup API Server Running",
-            "version": "2.1.0",
-            "frontend": "not_built" if not frontend_dist else "available",
-            "frontend_path": str(frontend_dist),
-            "endpoints": [
-                "/health/",
-                "/ai-chat/chat",
-                "/ai-chat/providers",
-                "/api/agents/*",
-                "/api/skills/*",
-                "/api/training/*",
-                "/api/voice/*",
-            ],
-        }
+        status_code=500,
+        content={"detail": "Internal server error", "error": str(exc)},
     )
+
+# ============================================
+# ROUTER IMPORTS & REGISTRATION
+# ============================================
+
+# Import all routers
+try:
+    from app.routers import agents, skills, health, training, voice, ai_chat, local_llm
+
+    # Include all routers
+    app.include_router(agents.router, prefix="/api")
+    app.include_router(skills.router, prefix="/api")
+    app.include_router(health.router, prefix="/api")
+    app.include_router(training.router, prefix="/api")
+    app.include_router(voice.router, prefix="/api")
+    app.include_router(ai_chat.router, prefix="/api")
+    app.include_router(local_llm.router, prefix="/api")
+
+    logger.info("All API routers registered successfully")
+
+except Exception as e:
+    logger.error(f"Failed to register routers: {e}")
+    # Create minimal fallback router
+    from fastapi import APIRouter
+    fallback_router = APIRouter()
+
+    @fallback_router.get("/fallback/")
+    async def fallback():
+        return {"status": "fallback_mode", "error": str(e)}
+
+    app.include_router(fallback_router, prefix="/api")
+
+# ============================================
+# STATIC FILES (Frontend)
+# ============================================
+
+# Serve frontend static files
+try:
+    frontend_dist = os.path.join(os.path.dirname(__file__), "..", "frontend_dist")
+    if os.path.exists(frontend_dist):
+        app.mount("/static", StaticFiles(directory=frontend_dist), name="static")
+        logger.info(f"Serving static files from {frontend_dist}")
+    else:
+        logger.warning(f"Frontend dist not found at {frontend_dist}")
+except Exception as e:
+    logger.warning(f"Could not mount static files: {e}")
+
+# Catch-all for SPA routing
+@app.get("/{full_path:path}")
+async def serve_spa(full_path: str):
+    """Serve frontend SPA for all non-API routes."""
+    # Don't intercept API routes
+    if full_path.startswith("api/") or full_path.startswith("docs") or full_path.startswith("openapi"):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+
+    # Try to serve index.html
+    index_path = os.path.join(os.path.dirname(__file__), "..", "frontend_dist", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+
+    return {"message": "AI Startup API - Frontend not built yet"}
+
+# ============================================
+# MAIN ENTRY POINT
+# ============================================
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True)
