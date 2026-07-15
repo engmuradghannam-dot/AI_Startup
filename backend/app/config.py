@@ -8,6 +8,10 @@ class Settings(BaseSettings):
 
     # Groq API (primary for cloud)
     groq_api_key: str = os.getenv("GROQ_API_KEY", "")
+    groq_base_url: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    groq_default_model: str = os.getenv("GROQ_DEFAULT_MODEL", "llama3-8b-8192")
+    groq_temperature: float = float(os.getenv("GROQ_TEMPERATURE", "0.7"))
+    groq_max_tokens: int = int(os.getenv("GROQ_MAX_TOKENS", "2048"))
 
     # Local LLM (Ollama) - optional, for local dev
     ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")

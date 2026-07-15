@@ -81,9 +81,16 @@ class GroqService:
             }
 
         except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}: {e.response.text}"
+            if e.response.status_code == 401:
+                error_msg = "Invalid Groq API key. Please check your GROQ_API_KEY environment variable."
+            elif e.response.status_code == 405:
+                error_msg = "Method Not Allowed. The Groq API endpoint or model may not be available."
+            elif e.response.status_code == 429:
+                error_msg = "Rate limit exceeded. Please wait a moment and try again."
             return {
                 "success": False,
-                "error": f"HTTP {e.response.status_code}: {e.response.text}",
+                "error": error_msg,
                 "execution_time_ms": (time.time() - start_time) * 1000,
             }
         except Exception as e:
