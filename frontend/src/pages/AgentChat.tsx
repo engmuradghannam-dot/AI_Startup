@@ -324,9 +324,9 @@ export default function AgentChat() {
   const captureScreen = async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: 'always' },
+        video: true,
         audio: false,
-      })
+      } as any)
 
       const video = document.createElement('video')
       video.srcObject = stream
