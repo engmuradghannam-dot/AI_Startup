@@ -458,6 +458,10 @@ export const settingsApi = {
     const res = await api.post(`/api/settings/llm-mode/${mode}`)
     return res.data
   },
+  ensembleQuery: async (data: { task: string; providers?: string[]; mode?: string; context?: any }) => {
+    const res = await api.post('/api/settings/ensemble', data)
+    return res.data
+  },
 }
 
 // Export all APIs

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 import os
 import httpx
+import asyncio
 
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
@@ -304,11 +305,9 @@ async def update_provider(provider_id: str, request: UpdateProviderRequest):
         provider["default_model"] = request.default_model
     if request.is_active is not None:
         provider["is_active"] = request.is_active
+        # Note: We now allow multiple active providers for ensemble mode
         if request.is_active:
             _active_provider_memory = provider_id
-            for pid, p in _providers_memory.items():
-                if pid != provider_id:
-                    p["is_active"] = False
     if request.temperature is not None:
         provider["temperature"] = request.temperature
     if request.max_tokens is not None:
@@ -316,6 +315,179 @@ async def update_provider(provider_id: str, request: UpdateProviderRequest):
 
     await _sync_to_db(provider_id, provider)
     return AIProviderConfig(**provider)
+
+
+# ========== ENSEMBLE MODE ==========
+
+class EnsembleRequest(BaseModel):
+    task: str
+    providers: Optional[List[str]] = None  # If None, uses all active providers
+    mode: str = "parallel"  # parallel, sequential, best_of_n
+    context: Optional[dict] = None
+
+
+@router.post("/ensemble")
+async def ensemble_query(request: EnsembleRequest):
+    """Query multiple AI providers simultaneously and aggregate results."""
+    await _sync_from_db()
+
+    # Get providers to use
+    if request.providers:
+        provider_ids = [p for p in request.providers if p in _providers_memory]
+    else:
+        provider_ids = [pid for pid, p in _providers_memory.items() 
+                       if p.get("is_active") and p.get("api_key") and pid != "ollama"]
+
+    if not provider_ids:
+        raise HTTPException(status_code=400, detail="No active providers configured")
+
+    # Build messages
+    messages = [{"role": "user", "content": request.task}]
+    if request.context and request.context.get("conversation_history"):
+        messages = request.context["conversation_history"] + messages
+
+    # Query all providers in parallel
+    from app.services.multi_provider_ai import MultiProviderAIService
+    service = MultiProviderAIService()
+
+    results = []
+    errors = []
+
+    async def query_single(provider_id: str):
+        try:
+            result = await service.chat_completion(
+                messages=messages,
+                model=None,
+                temperature=0.7,
+                max_tokens=2048,
+            )
+            # Force provider_id since service uses active provider
+            # We need to override the active provider
+            provider = _providers_memory.get(provider_id, {})
+            api_key = provider.get("api_key", "")
+            if not api_key:
+                return None
+
+            # Make direct request to this provider
+            config = service.PROVIDERS.get(provider_id, {})
+            base_url = provider.get("base_url", config.get("base_url", ""))
+
+            async with httpx.AsyncClient(
+                base_url=base_url,
+                headers=config.get("headers", lambda k: {})(api_key),
+                timeout=60.0,
+            ) as client:
+                model = provider.get("default_model", config.get("models", [""])[0])
+
+                if provider_id == "anthropic":
+                    payload = {
+                        "model": model,
+                        "messages": messages,
+                        "max_tokens": 2048,
+                        "temperature": 0.7,
+                    }
+                elif provider_id == "google":
+                    gemini_messages = []
+                    for msg in messages:
+                        role = "user" if msg["role"] == "user" else "model"
+                        gemini_messages.append({"role": role, "parts": [{"text": msg["content"]}]})
+                    payload = {
+                        "contents": gemini_messages,
+                        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 2048},
+                    }
+                elif provider_id == "cohere":
+                    payload = {
+                        "model": model,
+                        "message": messages[-1]["content"] if messages else "",
+                        "chat_history": [{"role": m["role"], "message": m["content"]} for m in messages[:-1]],
+                        "temperature": 0.7,
+                    }
+                else:
+                    payload = {
+                        "model": model,
+                        "messages": messages,
+                        "temperature": 0.7,
+                        "max_tokens": 2048,
+                    }
+
+                if provider_id == "google":
+                    endpoint = config.get("chat_endpoint", "").format(model=model, key=api_key)
+                    response = await client.post(endpoint, json=payload)
+                else:
+                    response = await client.post(config.get("chat_endpoint", "/chat/completions"), json=payload)
+
+                response.raise_for_status()
+                data = response.json()
+
+                # Extract content based on provider
+                if provider_id == "google":
+                    content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                elif provider_id == "anthropic":
+                    content = data.get("content", [{}])[0].get("text", "")
+                elif provider_id == "cohere":
+                    content = data.get("text", "")
+                else:
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+                return {
+                    "provider": provider_id,
+                    "provider_name": provider.get("name", provider_id),
+                    "model": model,
+                    "content": content,
+                    "success": True,
+                }
+        except Exception as e:
+            return {
+                "provider": provider_id,
+                "provider_name": _providers_memory.get(provider_id, {}).get("name", provider_id),
+                "error": str(e),
+                "success": False,
+            }
+
+    # Execute all queries in parallel
+    tasks = [query_single(pid) for pid in provider_ids]
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    for r in raw_results:
+        if isinstance(r, dict):
+            if r.get("success"):
+                results.append(r)
+            else:
+                errors.append(r)
+        else:
+            errors.append({"provider": "unknown", "error": str(r), "success": False})
+
+    if not results:
+        raise HTTPException(status_code=503, detail=f"All providers failed. Errors: {[e.get('error') for e in errors]}")
+
+    # Aggregate results
+    if len(results) == 1:
+        return {
+            "mode": "single",
+            "results": results,
+            "errors": errors,
+            "final_answer": results[0]["content"],
+            "providers_used": [r["provider"] for r in results],
+        }
+
+    # For multiple results, create ensemble summary
+    # Use the first successful result as base, but note all providers
+    all_contents = [r["content"] for r in results]
+
+    # Simple consensus: if all agree roughly, use first. Otherwise return all.
+    return {
+        "mode": "ensemble",
+        "results": results,
+        "errors": errors,
+        "providers_used": [r["provider"] for r in results],
+        "providers_count": len(results),
+        "final_answer": all_contents[0] if request.mode == "best_of_n" else None,
+        "all_answers": all_contents if request.mode != "best_of_n" else None,
+        "consensus": len(set(all_contents)) == 1 if len(all_contents) > 1 else True,
+    }
+
+
+
 
 
 @router.post("/providers/{provider_id}/test")
