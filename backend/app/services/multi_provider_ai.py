@@ -338,3 +338,13 @@ async def get_multi_provider_service() -> MultiProviderAIService:
     if _multi_provider_service is None:
         _multi_provider_service = MultiProviderAIService()
     return _multi_provider_service
+
+
+# ============================================
+# ALIASES for backward compatibility
+# ============================================
+UnifiedAIService = MultiProviderAIService
+
+async def get_unified_ai_service() -> MultiProviderAIService:
+    """Alias for get_multi_provider_service."""
+    return await get_multi_provider_service()
