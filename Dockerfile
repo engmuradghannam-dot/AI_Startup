@@ -1,17 +1,16 @@
-# Build stage for frontend
-FROM node:20-alpine AS frontend-build
+# Multi-stage build for AI Startup
+
+# Stage 1: Build frontend
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
-
-# Copy frontend package files
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm ci
 
-# Copy frontend source and build
 COPY frontend/ ./
 RUN npm run build
 
-# Production stage
+# Stage 2: Python backend
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -21,25 +20,20 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
+# Install Python dependencies
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY backend/app ./app
+# Copy backend code
+COPY backend/ ./
 
-# Copy built frontend from build stage
-COPY --from=frontend-build /app/frontend/dist ./frontend_dist
+# Copy built frontend
+COPY --from=frontend-builder /app/frontend/dist ./frontend_dist
 
-# Expose port
-EXPOSE 8080
-
-# Set environment variables
+# Set environment
 ENV PYTHONPATH=/app
 ENV PORT=8080
-ENV LLM_MODE=groq
 
-# Run the application
-COPY backend/start.sh /app/start.sh
-RUN chmod +x /app/start.sh
-CMD ["/app/start.sh"]
+EXPOSE 8080
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
