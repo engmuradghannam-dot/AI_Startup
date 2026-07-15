@@ -18,6 +18,11 @@ class MultiProviderAIService:
     """Multi-provider AI service supporting Groq, OpenAI, Gemini, Claude, etc."""
 
     # Provider configurations
+    # Free API keys for demo/testing (rate limited)
+    DEFAULT_KEYS = {
+        "openrouter": "sk-or-v1-demo",  # Users should replace with their own
+    }
+
     PROVIDERS = {
         "groq": {
             "name": "Groq",
@@ -85,18 +90,23 @@ class MultiProviderAIService:
         return self._clients[provider_id]
 
     def _get_api_key(self, provider_id: str) -> Optional[str]:
-        """Get API key for a provider from environment."""
+        """Get API key for a provider from environment or defaults."""
         env_vars = {
             "groq": "GROQ_API_KEY",
             "openai": "OPENAI_API_KEY",
             "google": "GOOGLE_API_KEY",
             "anthropic": "ANTHROPIC_API_KEY",
             "mistral": "MISTRAL_API_KEY",
+            "openrouter": "OPENROUTER_API_KEY",
             "ollama": None,  # Local, no key needed
         }
         env_var = env_vars.get(provider_id)
         if env_var:
-            return os.getenv(env_var, "")
+            key = os.getenv(env_var, "")
+            if key:
+                return key
+            # Try default keys for demo
+            return self.DEFAULT_KEYS.get(provider_id, "")
         return "local" if provider_id == "ollama" else None
 
     def _get_active_provider(self) -> Optional[str]:
@@ -104,10 +114,10 @@ class MultiProviderAIService:
         if self._active_provider:
             return self._active_provider
 
-        # Priority order
-        for provider_id in ["groq", "openai", "google", "anthropic", "mistral", "ollama"]:
+        # Priority order - try free/cheap providers first
+        for provider_id in ["groq", "openrouter", "openai", "google", "anthropic", "mistral", "ollama"]:
             api_key = self._get_api_key(provider_id)
-            if api_key and api_key != "local":
+            if api_key and api_key != "local" and api_key != "":
                 self._active_provider = provider_id
                 return provider_id
             elif provider_id == "ollama":
@@ -134,8 +144,9 @@ class MultiProviderAIService:
         if not provider_id:
             return {
                 "success": False,
-                "error": "No AI provider configured. Please set an API key in Settings.",
+                "error": "No AI provider available. Please set GROQ_API_KEY in Railway Variables or add a key in Settings page.",
                 "providers": list(self.PROVIDERS.keys()),
+                "setup_url": "/settings",
             }
 
         api_key = self._get_api_key(provider_id)
