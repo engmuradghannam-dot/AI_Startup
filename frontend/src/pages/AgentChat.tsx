@@ -323,6 +323,7 @@ export default function AgentChat() {
   // Screen Capture
   const captureScreen = async () => {
     try {
+      // @ts-ignore
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: false,
