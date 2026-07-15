@@ -1,13 +1,17 @@
-# Build v2.3 - Railway Compatible with $PORT
+# Build v2.4 - Railway Compatible with $PORT + Cache Busting
 # ============================================
 # AI Startup - Railway Deployment
-# Multi-Stage Build
+# Multi-Stage Build with Cache Invalidation
 # ============================================
 
 # -------- Stage 1: Frontend Builder --------
 FROM node:20-slim AS frontend-builder
 
 WORKDIR /app/frontend
+
+# Cache busting - forces rebuild on every deploy
+ARG CACHEBUST=1
+ENV CACHEBUST=${CACHEBUST}
 
 # Copy and install frontend deps
 COPY frontend/package.json ./
@@ -18,10 +22,17 @@ RUN npm install --prefer-offline --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
+# Verify build output exists
+RUN ls -la /app/frontend/dist/ && echo "✅ Frontend build verified"
+
 # -------- Stage 2: Python Backend --------
 FROM python:3.11-slim
 
 WORKDIR /app
+
+# Cache busting - forces rebuild on every deploy
+ARG CACHEBUST=1
+ENV CACHEBUST=${CACHEBUST}
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -40,6 +51,9 @@ COPY backend/tests/ ./tests/
 
 # Copy built frontend from stage 1
 COPY --from=frontend-builder /app/frontend/dist ./frontend_dist
+
+# Verify frontend files copied
+RUN ls -la /app/frontend_dist/ && echo "✅ Frontend dist copied to backend"
 
 # Environment
 ENV PYTHONUNBUFFERED=1

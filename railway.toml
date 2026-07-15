@@ -7,11 +7,8 @@ startCommand = "sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}'
 healthcheckPath = "/health/"
 healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 10
+restartPolicyMaxRetries = 3
 
-[deploy.env]
-PYTHONUNBUFFERED = "1"
-PYTHONDONTWRITEBYTECODE = "1"
-MONGODB_URI = "mongodb+srv://engmuradghannam_db_user:IWqsSLrcTgnwdgpD@cluster0.ouxl0wd.mongodb.net/ai_startup?retryWrites=true&w=majority"
-DATABASE_NAME = "ai_startup"
-ENVIRONMENT = "production"
+[build.docker]
+# Disable layer caching to force fresh builds
+cache = false
