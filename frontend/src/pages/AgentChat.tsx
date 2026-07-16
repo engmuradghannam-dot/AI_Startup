@@ -4,12 +4,13 @@ import {
   Send, Bot, User, Trash2, Download,
   Brain, Sparkles, Cloud, CheckCircle, AlertCircle,
   Server, Zap, Mic, MicOff, Plus, Pencil, MessageSquare, Paperclip, X, FileText,
-  Volume2, VolumeX, Wrench
+  Volume2, VolumeX, Wrench, Copy
 } from 'lucide-react'
 import { aiChatApi } from '../services/api'
 import toast from 'react-hot-toast'
 import { useVoiceAssistant, ASSISTANT_NAME } from '../hooks/useVoiceAssistant'
 import { useChatProjects } from '../hooks/useChatProjects'
+import MarkdownMessage from '../components/MarkdownMessage'
 
 interface ChatMessage {
   id: string
@@ -650,8 +651,21 @@ export default function AgentChat() {
                       </>
                     )}
                   </div>
+                ) : msg.role === 'agent' ? (
+                  <MarkdownMessage content={msg.content} />
                 ) : (
                   <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                )}
+
+                {msg.role === 'agent' && msg.content !== '' && (
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(msg.content); toast.success('Copied') }}
+                    className="mt-2 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                    title="Copy response"
+                  >
+                    <Copy className="w-3 h-3" />
+                    Copy
+                  </button>
                 )}
 
                 {msg.toolCalls && msg.toolCalls.length > 0 && msg.content !== '' && (
