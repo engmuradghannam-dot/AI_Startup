@@ -111,6 +111,7 @@ class UnifiedAIService:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
+        tools: Optional[List[Dict]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream completion events: {"delta": text}, then {"done": True, ...}, or {"error": msg}."""
         temp = temperature or 0.7
@@ -118,7 +119,7 @@ class UnifiedAIService:
 
         multi = await get_multi_provider_service()
         got_any_delta = False
-        async for event in multi.stream_chat_completion(messages=messages, model=model, temperature=temp, max_tokens=max_tok):
+        async for event in multi.stream_chat_completion(messages=messages, model=model, temperature=temp, max_tokens=max_tok, tools=tools):
             if "delta" in event:
                 got_any_delta = True
                 self._metrics["cloud_requests"] += 1

@@ -68,7 +68,8 @@ export const aiChatApi = {
   chatStream: async (
     messages: any[],
     options: any = {},
-    onDelta: (text: string) => void
+    onDelta: (text: string) => void,
+    onToolCall?: (call: { name: string; arguments: string }) => void
   ): Promise<{ content: string; model?: string; provider?: string; source?: string; usage?: any; agent_trace?: any[] }> => {
     const response = await fetch(`${API_BASE_URL}/api/ai-chat/chat/stream`, {
       method: 'POST',
@@ -109,6 +110,7 @@ export const aiChatApi = {
           content += payload.delta
           onDelta(payload.delta)
         }
+        if (payload.tool_call && onToolCall) onToolCall(payload.tool_call)
         if (payload.done) final = payload
       }
     }

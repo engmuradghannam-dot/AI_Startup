@@ -4,7 +4,7 @@ import {
   Send, Bot, User, Trash2, Download,
   Brain, Sparkles, Cloud, CheckCircle, AlertCircle,
   Server, Zap, Mic, MicOff, Plus, Pencil, MessageSquare, Paperclip, X, FileText,
-  Volume2, VolumeX
+  Volume2, VolumeX, Wrench
 } from 'lucide-react'
 import { aiChatApi } from '../services/api'
 import toast from 'react-hot-toast'
@@ -21,6 +21,7 @@ interface ChatMessage {
   provider?: string
   agentTrace?: any[]
   attachmentName?: string
+  toolCalls?: { name: string; arguments: string }[]
 }
 
 interface PendingAttachment {
@@ -197,6 +198,12 @@ export default function AgentChat() {
         },
         (delta) => {
           setChatHistory(prev => prev.map(m => m.id === assistantId ? { ...m, content: m.content + delta } : m))
+        },
+        (toolCall) => {
+          setChatHistory(prev => prev.map(m => m.id === assistantId
+            ? { ...m, toolCalls: [...(m.toolCalls || []), toolCall] }
+            : m
+          ))
         }
       )
 
@@ -631,11 +638,31 @@ export default function AgentChat() {
               >
                 {msg.role === 'agent' && msg.content === '' && isLoading ? (
                   <div className="flex items-center gap-2 text-sm text-gray-400">
-                    <Sparkles className="w-4 h-4 animate-pulse" />
-                    <span>Thinking...</span>
+                    {msg.toolCalls?.length ? (
+                      <>
+                        <Wrench className="w-4 h-4 animate-pulse" />
+                        <span>Using {msg.toolCalls[msg.toolCalls.length - 1].name}...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 animate-pulse" />
+                        <span>Thinking...</span>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                )}
+
+                {msg.toolCalls && msg.toolCalls.length > 0 && msg.content !== '' && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {msg.toolCalls.map((tc, i) => (
+                      <span key={i} className="flex items-center gap-1 text-xs px-2 py-0.5 bg-purple-900/40 text-purple-300 rounded-full">
+                        <Wrench className="w-3 h-3" />
+                        {tc.name}
+                      </span>
+                    ))}
+                  </div>
                 )}
 
                 {msg.attachmentName && (

@@ -244,15 +244,20 @@ async def chat_stream(request: ChatRequest):
             messages, agent_mode = await _resolve_messages_and_mode(request)
 
             if agent_mode == "single":
+                from app.services.tools import TOOL_DEFINITIONS
+
                 async for event in unified_ai.stream_completion(
                     messages=messages, model=request.model,
                     temperature=request.temperature, max_tokens=request.max_tokens,
+                    tools=TOOL_DEFINITIONS,
                 ):
                     if "error" in event:
                         yield sse({"error": event["error"]})
                         return
                     if "delta" in event:
                         yield sse({"delta": event["delta"]})
+                    if "tool_call" in event:
+                        yield sse({"tool_call": event["tool_call"]})
                     if event.get("done"):
                         yield sse({
                             "done": True,

@@ -377,12 +377,16 @@ class MultiProviderAIService:
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
+        tools: Optional[List[Dict]] = None,
     ) -> AsyncGenerator[Dict[str, Any], None]:
-        """Stream a chat completion, yielding {"delta": text} chunks then a final
-        {"done": True, "model", "provider", "usage"} event, or {"error": message}."""
-        import time
-        start_time = time.time()
+        """Stream a chat completion, yielding {"delta": text} chunks, optional
+        {"tool_call": {"name", "arguments"}} events when a tool is invoked, then a
+        final {"done": True, "model", "provider", "usage"} event, or {"error": message}.
 
+        When the model requests a tool call, it's executed locally (see tools.py)
+        and the result is fed back for a follow-up turn - up to a few rounds - so
+        the whole thing still reads as one continuous stream to the caller.
+        """
         provider_id = await self._get_active_provider()
 
         if not provider_id:
@@ -395,7 +399,7 @@ class MultiProviderAIService:
             return
 
         if provider_id not in self.SSE_COMPATIBLE_PROVIDERS:
-            # no streaming parser for this provider yet - fall back to one full chunk
+            # no streaming (or tool-calling) parser for this provider yet - fall back to one full chunk
             result = await self.chat_completion(messages, model=model, temperature=temperature, max_tokens=max_tokens)
             if not result.get("success"):
                 yield {"error": result.get("error", "Request failed")}
@@ -404,67 +408,105 @@ class MultiProviderAIService:
             yield {"done": True, "model": result.get("model"), "provider": provider_id, "usage": result.get("usage", {})}
             return
 
+        from app.services.tools import execute_tool
+
+        base_url = self._get_base_url(provider_id)
+        config = self.PROVIDERS[provider_id]
+        resolved_model = model or self._get_model(provider_id)
+        conversation = list(messages)
+        usage: Dict[str, Any] = {}
+
         try:
-            base_url = self._get_base_url(provider_id)
-            config = self.PROVIDERS[provider_id]
-            resolved_model = model or self._get_model(provider_id)
-            payload = {
-                "model": resolved_model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": True,
-            }
-
-            full_content = ""
-            usage: Dict[str, Any] = {}
-
             async with httpx.AsyncClient(
                 base_url=base_url,
                 headers=config["headers"](api_key or ""),
                 timeout=120.0,
             ) as client:
-                async with client.stream("POST", config["chat_endpoint"], json=payload) as response:
-                    if response.status_code >= 400:
-                        body = (await response.aread()).decode("utf-8", errors="replace")
-                        error_msg = f"HTTP {response.status_code}: {body[:200]}"
-                        if response.status_code == 401:
-                            error_msg = f"Invalid API key for {provider_id}. Please check your settings."
-                        elif response.status_code == 429:
-                            error_msg = f"Rate limit exceeded for {provider_id}. Please try again later."
-                        self._metrics["errors"] += 1
-                        yield {"error": error_msg}
+                for _round in range(4):  # cap tool round-trips to avoid infinite loops
+                    payload = {
+                        "model": resolved_model,
+                        "messages": conversation,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                        "stream": True,
+                    }
+                    if tools:
+                        payload["tools"] = tools
+                        payload["tool_choice"] = "auto"
+
+                    full_content = ""
+                    tool_calls_acc: Dict[int, Dict[str, str]] = {}
+                    finish_reason = None
+
+                    async with client.stream("POST", config["chat_endpoint"], json=payload) as response:
+                        if response.status_code >= 400:
+                            body = (await response.aread()).decode("utf-8", errors="replace")
+                            error_msg = f"HTTP {response.status_code}: {body[:200]}"
+                            if response.status_code == 401:
+                                error_msg = f"Invalid API key for {provider_id}. Please check your settings."
+                            elif response.status_code == 429:
+                                error_msg = f"Rate limit exceeded for {provider_id}. Please try again later."
+                            self._metrics["errors"] += 1
+                            yield {"error": error_msg}
+                            return
+
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            data = line[len("data: "):].strip()
+                            if data == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data)
+                            except json.JSONDecodeError:
+                                continue
+                            choice = chunk.get("choices", [{}])[0]
+                            delta = choice.get("delta", {})
+
+                            if delta.get("content"):
+                                full_content += delta["content"]
+                                yield {"delta": delta["content"]}
+
+                            for tc in delta.get("tool_calls", []) or []:
+                                idx = tc.get("index", 0)
+                                entry = tool_calls_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                                if tc.get("id"):
+                                    entry["id"] = tc["id"]
+                                fn = tc.get("function", {})
+                                if fn.get("name"):
+                                    entry["name"] = fn["name"]
+                                if fn.get("arguments"):
+                                    entry["arguments"] += fn["arguments"]
+
+                            if choice.get("finish_reason"):
+                                finish_reason = choice["finish_reason"]
+                            if chunk.get("usage"):
+                                usage = chunk["usage"]
+
+                    if finish_reason != "tool_calls" or not tool_calls_acc:
+                        self._metrics["requests"] += 1
+                        self._metrics["provider_usage"][provider_id] = self._metrics["provider_usage"].get(provider_id, 0) + 1
+                        yield {"done": True, "model": resolved_model, "provider": provider_id, "usage": usage}
                         return
 
-                    async for line in response.aiter_lines():
-                        if not line.startswith("data: "):
-                            continue
-                        data = line[len("data: "):].strip()
-                        if data == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data)
-                        except json.JSONDecodeError:
-                            continue
-                        delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                        if delta:
-                            full_content += delta
-                            yield {"delta": delta}
-                        if chunk.get("usage"):
-                            usage = chunk["usage"]
+                    # model wants to call one or more tools - run them, then loop for the follow-up turn
+                    ordered_calls = [tool_calls_acc[i] for i in sorted(tool_calls_acc)]
+                    conversation.append({
+                        "role": "assistant",
+                        "content": full_content or None,
+                        "tool_calls": [
+                            {"id": tc["id"], "type": "function", "function": {"name": tc["name"], "arguments": tc["arguments"]}}
+                            for tc in ordered_calls
+                        ],
+                    })
+                    for tc in ordered_calls:
+                        yield {"tool_call": {"name": tc["name"], "arguments": tc["arguments"]}}
+                        result_json = await execute_tool(tc["name"], tc["arguments"])
+                        conversation.append({"role": "tool", "tool_call_id": tc["id"], "content": result_json})
 
-            self._metrics["requests"] += 1
-            self._metrics["provider_usage"][provider_id] = self._metrics["provider_usage"].get(provider_id, 0) + 1
-            yield {"done": True, "model": resolved_model, "provider": provider_id, "usage": usage}
+                # ran out of rounds - surface whatever the model has said so far as the final answer
+                yield {"done": True, "model": resolved_model, "provider": provider_id, "usage": usage}
 
-        except httpx.HTTPStatusError as e:
-            self._metrics["errors"] += 1
-            error_msg = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
-            if e.response.status_code == 401:
-                error_msg = f"Invalid API key for {provider_id}. Please check your settings."
-            elif e.response.status_code == 429:
-                error_msg = f"Rate limit exceeded for {provider_id}. Please try again later."
-            yield {"error": error_msg}
         except Exception as e:
             self._metrics["errors"] += 1
             yield {"error": f"{provider_id} error: {str(e)}"}
