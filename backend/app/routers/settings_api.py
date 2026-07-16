@@ -575,12 +575,18 @@ async def set_active_provider(provider_id: str):
 @router.get("/llm-mode")
 async def get_llm_mode():
     """Get current LLM mode."""
+    global _active_provider_memory
+    if _active_provider_memory:
+        return {"mode": _active_provider_memory}
     return {"mode": "auto"}
 
 
 @router.post("/llm-mode/{mode}")
 async def set_llm_mode(mode: str):
-    """Set LLM mode: auto, cloud, local."""
-    if mode not in ["auto", "cloud", "local"]:
-        raise HTTPException(status_code=400, detail="Mode must be auto, cloud, or local")
-    return {"message": f"LLM mode set to {mode}"}
+    """Set LLM mode: auto, cloud, local, or any provider ID."""
+    valid_modes = ["auto", "cloud", "local", "ensemble", 
+                   "groq", "openai", "google", "anthropic", "mistral",
+                   "cohere", "ollama", "huggingface", "openrouter", "xai", "kimi"]
+    if mode not in valid_modes:
+        raise HTTPException(status_code=400, detail=f"Mode must be one of: {', '.join(valid_modes)}")
+    return {"message": f"LLM mode set to {mode}", "mode": mode}
