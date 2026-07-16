@@ -16,7 +16,7 @@ async def test_unified_service_metrics():
     """Test metrics initialization."""
     service = UnifiedAIService()
     metrics = service.get_metrics()
-    assert "groq_requests" in metrics
+    assert "cloud_requests" in metrics
     assert "local_requests" in metrics
     assert "fallback_count" in metrics
     assert "errors" in metrics

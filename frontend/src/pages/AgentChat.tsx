@@ -154,19 +154,21 @@ export default function AgentChat() {
             AI Status
           </h3>
 
-          {/* Groq Status */}
+          {/* Cloud Provider Status */}
           <div className="mb-3">
             <div className="flex items-center gap-2 mb-1">
               <Cloud className="w-4 h-4 text-purple-400" />
-              <span className="text-sm text-gray-300">Groq Cloud</span>
-              {healthData?.groq?.available ? (
+              <span className="text-sm text-gray-300">
+                {healthData?.cloud?.provider ? `${healthData.cloud.provider} Cloud` : 'Cloud AI'}
+              </span>
+              {healthData?.cloud?.available ? (
                 <CheckCircle className="w-4 h-4 text-green-400" />
               ) : (
                 <AlertCircle className="w-4 h-4 text-yellow-400" />
               )}
             </div>
             <div className="text-xs text-gray-500 ml-6">
-              {healthData?.groq?.available ? 'Connected' : 'Check API key'}
+              {healthData?.cloud?.available ? 'Connected' : 'Configure a provider in Settings'}
             </div>
           </div>
 
@@ -175,7 +177,7 @@ export default function AgentChat() {
             <Zap className="w-4 h-4 text-yellow-400" />
             <span className="text-sm text-gray-300">Mode:</span>
             <span className="text-xs px-2 py-0.5 bg-blue-900 text-blue-300 rounded-full">
-              {healthData?.mode || 'groq'}
+              {healthData?.mode || 'auto'}
             </span>
           </div>
         </div>
@@ -422,10 +424,10 @@ export default function AgentChat() {
                 <span>Shift+Enter for new line</span>
               </div>
               <div className="flex items-center gap-2">
-                {healthData?.groq?.available && (
+                {healthData?.cloud?.available && (
                   <span className="flex items-center gap-1 text-green-400">
                     <Server className="w-3 h-3" />
-                    Groq Connected
+                    {healthData.cloud.provider} Connected
                   </span>
                 )}
               </div>

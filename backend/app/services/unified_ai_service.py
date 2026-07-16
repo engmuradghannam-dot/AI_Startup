@@ -1,23 +1,15 @@
-"""Unified AI Service - Groq Cloud Primary + Local LLM Optional.
+"""Unified AI Service - Multi-Provider Cloud Primary + Local LLM Optional.
 
-Primary: Groq API (fast, reliable, works everywhere)
+Primary: whichever provider is active in Settings (falls back to that
+provider's env var API key), across all 11 supported providers
 Optional: Local LLM (Ollama/LocalAI) for local development
-Auto mode: Uses Groq by default, tries local if configured
+Auto mode: uses the configured cloud provider by default, tries local if configured
 """
-import os
-import json
 import logging
 from typing import List, Dict, Any, Optional, AsyncGenerator
-from datetime import datetime
 
 from app.config import get_settings
-
-# Groq is primary
-try:
-    from app.services.groq_service import get_groq_service
-    GROQ_AVAILABLE = True
-except ImportError:
-    GROQ_AVAILABLE = False
+from app.services.multi_provider_ai import get_multi_provider_service
 
 # Local LLM is optional
 try:
@@ -30,26 +22,18 @@ logger = logging.getLogger(__name__)
 
 
 class UnifiedAIService:
-    """Unified AI service with Groq-first architecture."""
+    """Unified AI service - delegates to whichever provider is configured (Settings or env var), local LLM as fallback."""
 
     def __init__(self):
         self.settings = get_settings()
         self.mode = self.settings.llm_mode
-        self._groq_service = None
         self._local_service = None
         self._metrics = {
-            "groq_requests": 0,
+            "cloud_requests": 0,
             "local_requests": 0,
             "fallback_count": 0,
             "errors": 0,
         }
-
-    async def _get_groq_service(self):
-        if not GROQ_AVAILABLE:
-            return None
-        if self._groq_service is None:
-            self._groq_service = await get_groq_service()
-        return self._groq_service
 
     async def _get_local_service(self):
         if not LOCAL_AVAILABLE:
@@ -67,37 +51,32 @@ class UnifiedAIService:
         stream: bool = False,
         tools: Optional[List[Dict]] = None,
     ) -> Dict[str, Any]:
-        """Generate chat completion - Groq first, local fallback."""
+        """Generate chat completion - configured cloud provider first, local fallback."""
 
         temp = temperature or 0.7
         max_tok = max_tokens or 2048
 
-        # Try Groq first (primary)
-        if GROQ_AVAILABLE and self.settings.groq_api_key:
-            try:
-                groq = await self._get_groq_service()
-                if groq:
-                    self._metrics["groq_requests"] += 1
-                    logger.info("Using Groq API")
-
-                    result = await groq.chat_completion(
-                        messages=messages,
-                        model=model,
-                        temperature=temp,
-                        max_tokens=max_tok,
-                        stream=stream,
-                        tools=tools,
-                    )
-                    if not result.get("success"):
-                        raise RuntimeError(result.get("error", "Groq request failed"))
-                    result["source"] = "groq"
-                    result["provider"] = "groq"
-                    return result
-            except Exception as e:
-                logger.warning(f"Groq failed: {e}")
-                if self.mode == "groq":
-                    raise
-                self._metrics["fallback_count"] += 1
+        # Try the configured cloud provider first (Settings-configured or env var)
+        try:
+            multi = await get_multi_provider_service()
+            result = await multi.chat_completion(
+                messages=messages,
+                model=model,
+                temperature=temp,
+                max_tokens=max_tok,
+                stream=stream,
+            )
+            if not result.get("success"):
+                raise RuntimeError(result.get("error", "AI provider request failed"))
+            self._metrics["cloud_requests"] += 1
+            logger.info(f"Using {result.get('provider', 'cloud')} provider")
+            result["source"] = result.get("provider", "cloud")
+            return result
+        except Exception as e:
+            logger.warning(f"Cloud provider failed: {e}")
+            if self.mode not in ("local", "auto"):
+                raise
+            self._metrics["fallback_count"] += 1
 
         # Fallback to local LLM
         if LOCAL_AVAILABLE and self.mode in ("local", "auto"):
@@ -123,7 +102,7 @@ class UnifiedAIService:
 
         raise RuntimeError(
             "No AI provider available. "
-            "Please set GROQ_API_KEY environment variable or install Ollama."
+            "Please configure a provider in Settings (or set its API key env var) or install Ollama."
         )
 
     async def stream_completion(
@@ -137,26 +116,7 @@ class UnifiedAIService:
         temp = temperature or 0.7
         max_tok = max_tokens or 2048
 
-        # Try Groq streaming first
-        if GROQ_AVAILABLE and self.settings.groq_api_key:
-            try:
-                groq = await self._get_groq_service()
-                if groq:
-                    self._metrics["groq_requests"] += 1
-                    # Note: Groq streaming implementation depends on groq_service
-                    result = await groq.chat_completion(
-                        messages=messages,
-                        model=model,
-                        temperature=temp,
-                        max_tokens=max_tok,
-                        stream=False,
-                    )
-                    yield result.get("content", "")
-                    return
-            except Exception as e:
-                logger.warning(f"Groq streaming failed: {e}")
-
-        # Fallback: return complete response
+        # No native streaming across providers yet - return the complete response as one chunk
         result = await self.chat_completion(
             messages=messages,
             model=model,
@@ -170,58 +130,27 @@ class UnifiedAIService:
         """Get all available models."""
         models = []
 
-        # Groq models (always available if key is set)
-        if GROQ_AVAILABLE and self.settings.groq_api_key:
-            models.extend([
-                {
-                    "id": "llama-3.1-70b-versatile",
-                    "name": "Llama 3.1 70B (Groq)",
-                    "provider": "groq",
-                    "provider_name": "groq",
-                    "size": "~40GB",
-                    "parameters": "70B",
-                    "speed": "Very Fast (cloud)",
-                    "capabilities": ["advanced_reasoning", "coding", "analysis", "multilingual"],
-                    "best_for": ["complex_tasks", "production", "coding"],
-                    "ram_required_mb": 0,
-                },
-                {
-                    "id": "llama-3.1-8b-instant",
-                    "name": "Llama 3.1 8B (Groq)",
-                    "provider": "groq",
-                    "provider_name": "groq",
-                    "size": "~5GB",
-                    "parameters": "8B",
-                    "speed": "Ultra Fast (cloud)",
-                    "capabilities": ["fast_inference", "chat", "basic_coding"],
-                    "best_for": ["quick_responses", "chatbots", "simple_tasks"],
-                    "ram_required_mb": 0,
-                },
-                {
-                    "id": "mixtral-8x7b-32768",
-                    "name": "Mixtral 8x7B (Groq)",
-                    "provider": "groq",
-                    "provider_name": "groq",
-                    "size": "~47GB",
-                    "parameters": "47B",
-                    "speed": "Fast (cloud)",
-                    "capabilities": ["reasoning", "multilingual", "coding"],
-                    "best_for": ["complex_tasks", "multilingual"],
-                    "ram_required_mb": 0,
-                },
-                {
-                    "id": "gemma2-9b-it",
-                    "name": "Gemma 2 9B (Groq)",
-                    "provider": "groq",
-                    "provider_name": "groq",
-                    "size": "~6GB",
-                    "parameters": "9B",
-                    "speed": "Fast (cloud)",
-                    "capabilities": ["reasoning", "safety", "instruction_following"],
-                    "best_for": ["safe_content", "education"],
-                    "ram_required_mb": 0,
-                },
-            ])
+        try:
+            multi = await get_multi_provider_service()
+            for provider_id, config in multi.PROVIDERS.items():
+                api_key = multi._get_api_key(provider_id)
+                if not api_key:
+                    continue
+                for model_id in config.get("models", []):
+                    models.append({
+                        "id": model_id,
+                        "name": f"{model_id} ({config['name']})",
+                        "provider": provider_id,
+                        "provider_name": config["name"],
+                        "size": "unknown",
+                        "parameters": "unknown",
+                        "speed": "cloud",
+                        "capabilities": ["chat"],
+                        "best_for": ["general"],
+                        "ram_required_mb": 0,
+                    })
+        except Exception as e:
+            logger.debug(f"Could not get cloud provider models: {e}")
 
         # Local models (if available)
         if LOCAL_AVAILABLE:
@@ -256,13 +185,14 @@ class UnifiedAIService:
 
     async def health_check(self) -> Dict[str, Any]:
         """Check health of all AI providers."""
-        groq_health = {"available": False}
-        if GROQ_AVAILABLE and self.settings.groq_api_key:
-            try:
-                groq = await self._get_groq_service()
-                groq_health = {"available": True, "key_configured": True}
-            except Exception as e:
-                groq_health = {"available": False, "error": str(e)}
+        cloud_health = {"available": False}
+        try:
+            multi = await get_multi_provider_service()
+            active_provider = await multi._get_active_provider()
+            if active_provider and active_provider != "ollama":
+                cloud_health = {"available": True, "provider": active_provider, "key_configured": True}
+        except Exception as e:
+            cloud_health = {"available": False, "error": str(e)}
 
         local_health = {"status": "not_configured"}
         if LOCAL_AVAILABLE:
@@ -273,9 +203,9 @@ class UnifiedAIService:
                 local_health = {"status": "unavailable", "error": str(e)}
 
         return {
-            "status": "healthy" if groq_health["available"] else ("degraded" if local_health.get("status") == "healthy" else "unavailable"),
+            "status": "healthy" if cloud_health["available"] else ("degraded" if local_health.get("status") == "healthy" else "unavailable"),
             "mode": self.mode,
-            "groq": groq_health,
+            "cloud": cloud_health,
             "local": local_health,
             "metrics": self._metrics,
         }

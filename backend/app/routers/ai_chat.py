@@ -142,7 +142,7 @@ async def chat(request: ChatRequest):
         if "No AI provider available" in error_msg:
             raise HTTPException(
                 status_code=503,
-                detail="AI service unavailable. Please set GROQ_API_KEY or configure Local LLM."
+                detail="AI service unavailable. Please activate a provider in Settings or configure Local LLM."
             )
         raise HTTPException(status_code=500, detail=f"Chat error: {error_msg}")
 

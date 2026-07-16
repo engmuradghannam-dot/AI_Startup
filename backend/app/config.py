@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
     ollama_default_model: str = os.getenv("OLLAMA_DEFAULT_MODEL", "llama3")
     ollama_fallback_model: str = os.getenv("OLLAMA_FALLBACK_MODEL", "phi4-mini")
+    localai_host: str = os.getenv("LOCALAI_HOST", "http://localhost:8080")
 
     # ============================================
     # 8. Hugging Face (FREE)
