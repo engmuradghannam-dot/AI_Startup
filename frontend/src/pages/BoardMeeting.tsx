@@ -1,181 +1,104 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
-import { Send, Bot, User, Users, MessageSquare, Brain, CheckCircle, XCircle } from 'lucide-react'
-import { agentsApi } from '../services/api'
-import axios from 'axios'
-import toast from 'react-hot-toast'
+import { Send, Users, MessageSquare, CheckCircle, XCircle } from 'lucide-react'
+import { aiChatApi } from '../services/api'
 
-// Local storage helper
-const getStoredAgents = () => {
-  try {
-    const stored = localStorage.getItem('ai_startup_agents')
-    return stored ? JSON.parse(stored) : []
-  } catch {
-    return []
-  }
+const AGENT_ICONS: Record<string, string> = {
+  strategist: '🧭',
+  coder: '💻',
+  analyst: '📊',
+  coordinator: '🤝',
 }
 
-const getStoredProviders = () => {
-  try {
-    const stored = localStorage.getItem('ai_startup_providers')
-    return stored ? JSON.parse(stored) : []
-  } catch {
-    return []
-  }
+interface AIAgent {
+  name: string
+  specialty: string
+  description: string
+  skills: string[]
+  model: string
 }
-
-// Assign AI provider to each agent
-const AGENT_PROVIDERS = [
-  { provider: 'huggingface', model: 'microsoft/DialoGPT-medium', icon: '🤗' },
-  { provider: 'groq', model: 'llama-3.3-70b-versatile', icon: '🚀' },
-  { provider: 'openai', model: 'gpt-4o', icon: '🧠' },
-  { provider: 'chatgpt', model: 'gpt-4-turbo', icon: '💬' },
-  { provider: 'grok', model: 'grok-beta', icon: '⚡' },
-  { provider: 'anthropic', model: 'claude-3-5-sonnet-20241022', icon: '🎯' },
-  { provider: 'google', model: 'gemini-1.5-pro', icon: '🔮' },
-  { provider: 'cohere', model: 'command-r-plus', icon: '📊' },
-  { provider: 'mistral', model: 'mistral-large-latest', icon: '🌊' },
-  { provider: 'kimi', model: 'kimi-k2', icon: '🌙' },
-]
 
 interface BoardMessage {
   id: string
-  agentId: string
   agentName: string
-  agentRole: string
-  provider: string
-  model: string
+  specialty?: string
+  provider?: string
+  model?: string
   icon: string
   content: string
   role: 'user' | 'agent' | 'consensus'
   timestamp: string
-  agreed: boolean
+  ok: boolean
 }
 
 export default function BoardMeeting() {
   const [message, setMessage] = useState('')
   const [boardHistory, setBoardHistory] = useState<BoardMessage[]>([])
-  const [localAgents, setLocalAgents] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedAgents, setSelectedAgents] = useState<string[]>([])
   const [consensusMode, setConsensusMode] = useState(false)
 
-  // Load agents
-  const { data: apiAgents } = useQuery(
-    'agents',
-    () => agentsApi.list().then((r: any) => r.data),
-  )
+  const { data: agentsData } = useQuery('ai-agents', () => aiChatApi.getAgents())
+  const agents: AIAgent[] = agentsData || []
 
+  // Default to every real specialized agent being on the board
   useEffect(() => {
-    const stored = getStoredAgents()
-    const apiAgentsArray = Array.isArray(apiAgents) ? apiAgents : []
-    const allAgents = [...stored, ...apiAgentsArray]
-    const unique = allAgents.filter((agent, index, self) =>
-      index === self.findIndex((a) => a.id === agent.id)
-    )
-    setLocalAgents(unique)
-    if (unique.length > 0 && selectedAgents.length === 0) {
-      setSelectedAgents(unique.map((a: any) => a.id))
+    if (agents.length > 0 && selectedAgents.length === 0) {
+      setSelectedAgents(agents.map((a) => a.name))
     }
-  }, [apiAgents])
+  }, [agents])
 
-  const toggleAgent = (agentId: string) => {
+  const toggleAgent = (name: string) => {
     setSelectedAgents(prev =>
-      prev.includes(agentId)
-        ? prev.filter(id => id !== agentId)
-        : [...prev, agentId]
+      prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name]
     )
   }
 
   const handleSend = async () => {
-    if (!message.trim() || selectedAgents.length === 0) return
+    if (!message.trim() || selectedAgents.length === 0 || isLoading) return
 
+    const question = message
     const userMessage: BoardMessage = {
       id: `user_${Date.now()}`,
-      agentId: 'user',
       agentName: 'You',
-      agentRole: 'Chairman',
-      provider: 'user',
-      model: 'user',
       icon: '👤',
-      content: message,
+      content: question,
       role: 'user',
       timestamp: new Date().toISOString(),
-      agreed: true,
+      ok: true,
     }
 
     setBoardHistory(prev => [...prev, userMessage])
     setMessage('')
     setIsLoading(true)
 
-    const activeAgents = localAgents.filter((a: any) => selectedAgents.includes(a.id))
+    const activeAgents = agents.filter((a) => selectedAgents.includes(a.name))
 
-    // Get all responses in parallel
     const responses = await Promise.all(
-      activeAgents.map(async (agent: any, index: number) => {
-        const providerConfig = AGENT_PROVIDERS[index % AGENT_PROVIDERS.length]
-        const providers = getStoredProviders()
-        const provider = providers.find((p: any) => p.id === providerConfig.provider)
-
-        if (!provider || !provider.keyValue) {
-          return {
-            id: `resp_${Date.now()}_${index}`,
-            agentId: agent.id,
-            agentName: agent.name,
-            agentRole: agent.role,
-            provider: providerConfig.provider,
-            model: providerConfig.model,
-            icon: providerConfig.icon,
-            content: `${agent.name}: I need an API key for ${providerConfig.provider} to respond. Please configure it in Settings.`,
-            role: 'agent' as const,
-            timestamp: new Date().toISOString(),
-            agreed: false,
-          }
-        }
-
+      activeAgents.map(async (agent): Promise<BoardMessage> => {
         try {
-          const messages = [
-            { 
-              role: 'system', 
-              content: `You are ${agent.name}, a ${agent.role} in a board meeting. You are discussing with other AI agents. Give your professional opinion. Be concise (2-3 sentences). Respond in the same language as the user.` 
-            },
-            { role: 'user', content: message },
-          ]
-
-          const response = await axios.post('/ai-chat/chat', {
-            provider: providerConfig.provider,
-            model: providerConfig.model,
-            messages: messages,
-            agent_name: agent.name,
-            api_key: provider.keyValue,
-          })
-
+          const result = await aiChatApi.executeAgent(agent.name, question)
           return {
-            id: `resp_${Date.now()}_${index}`,
-            agentId: agent.id,
+            id: `resp_${Date.now()}_${agent.name}`,
             agentName: agent.name,
-            agentRole: agent.role,
-            provider: providerConfig.provider,
-            model: providerConfig.model,
-            icon: providerConfig.icon,
-            content: response.data.response || 'No response',
-            role: 'agent' as const,
+            specialty: result.specialty,
+            provider: result.provider,
+            model: result.model_used,
+            icon: AGENT_ICONS[agent.name] || '🤖',
+            content: result.thought || 'No response',
+            role: 'agent',
             timestamp: new Date().toISOString(),
-            agreed: !response.data.mock,
+            ok: true,
           }
         } catch (error: any) {
           return {
-            id: `resp_${Date.now()}_${index}`,
-            agentId: agent.id,
+            id: `resp_${Date.now()}_${agent.name}`,
             agentName: agent.name,
-            agentRole: agent.role,
-            provider: providerConfig.provider,
-            model: providerConfig.model,
-            icon: providerConfig.icon,
-            content: `${agent.name}: Error - ${error.message || 'Connection failed'}`,
-            role: 'agent' as const,
+            icon: AGENT_ICONS[agent.name] || '🤖',
+            content: `Error - ${error.response?.data?.detail || error.message || 'Request failed'}`,
+            role: 'agent',
             timestamp: new Date().toISOString(),
-            agreed: false,
+            ok: false,
           }
         }
       })
@@ -183,9 +106,8 @@ export default function BoardMeeting() {
 
     setBoardHistory(prev => [...prev, ...responses])
 
-    // If consensus mode, generate consensus
-    if (consensusMode && responses.length > 1) {
-      const consensus = await generateConsensus(responses, message)
+    if (consensusMode && responses.filter(r => r.ok).length > 1) {
+      const consensus = await generateConsensus(responses, question)
       setBoardHistory(prev => [...prev, consensus])
     }
 
@@ -193,86 +115,55 @@ export default function BoardMeeting() {
   }
 
   const generateConsensus = async (responses: BoardMessage[], originalQuestion: string): Promise<BoardMessage> => {
-    const successfulResponses = responses.filter(r => r.agreed)
+    const successful = responses.filter(r => r.ok)
 
-    if (successfulResponses.length === 0) {
+    if (successful.length === 0) {
       return {
         id: `consensus_${Date.now()}`,
-        agentId: 'consensus',
         agentName: 'Board Consensus',
-        agentRole: 'Consensus',
-        provider: 'system',
-        model: 'consensus',
         icon: '🤝',
-        content: 'No consensus could be reached. All agents encountered errors. Please check API keys in Settings.',
+        content: 'No consensus could be reached - every agent hit an error. Please check your active provider in Settings.',
         role: 'consensus',
         timestamp: new Date().toISOString(),
-        agreed: false,
+        ok: false,
       }
     }
 
-    // Try to get consensus from one of the working providers
-    const providers = getStoredProviders()
-    const workingProvider = providers.find((p: any) => p.isActive && p.keyValue)
+    try {
+      const allOpinions = successful.map(r => `${r.agentName} (${r.specialty}): ${r.content}`).join('\n\n')
+      const response = await aiChatApi.chat(
+        [
+          {
+            role: 'system',
+            content: 'You are a board consensus generator. Summarize the opinions below and provide a final consensus decision. Be concise.',
+          },
+          {
+            role: 'user',
+            content: `Question: ${originalQuestion}\n\nOpinions:\n${allOpinions}\n\nProvide a consensus decision:`,
+          },
+        ],
+        { agent_mode: 'single', user_id: null }
+      )
 
-    if (workingProvider) {
-      try {
-        const allOpinions = successfulResponses.map(r => `${r.agentName} (${r.provider}): ${r.content}`).join('\n\n')
-
-        const response = await axios.post('/ai-chat/chat', {
-          provider: workingProvider.id,
-          model: workingProvider.models[0],
-          messages: [
-            { 
-              role: 'system', 
-              content: 'You are a board consensus generator. Summarize the opinions below and provide a final consensus decision. Be concise.' 
-            },
-            { role: 'user', content: `Question: ${originalQuestion}
-
-Opinions:
-${allOpinions}
-
-Provide a consensus decision:` },
-          ],
-          agent_name: 'Consensus',
-          api_key: workingProvider.keyValue,
-        })
-
-        return {
-          id: `consensus_${Date.now()}`,
-          agentId: 'consensus',
-          agentName: 'Board Consensus',
-          agentRole: 'Consensus',
-          provider: workingProvider.id,
-          model: workingProvider.models[0],
-          icon: '🤝',
-          content: response.data.response || 'Consensus reached.',
-          role: 'consensus',
-          timestamp: new Date().toISOString(),
-          agreed: true,
-        }
-      } catch (e) {
-        // Fallback
+      return {
+        id: `consensus_${Date.now()}`,
+        agentName: 'Board Consensus',
+        icon: '🤝',
+        content: response.choices?.[0]?.message?.content || 'Consensus reached.',
+        role: 'consensus',
+        timestamp: new Date().toISOString(),
+        ok: true,
       }
-    }
-
-    // Simple consensus
-    return {
-      id: `consensus_${Date.now()}`,
-      agentId: 'consensus',
-      agentName: 'Board Consensus',
-      agentRole: 'Consensus',
-      provider: 'system',
-      model: 'consensus',
-      icon: '🤝',
-      content: `Board Meeting Results:
-
-${successfulResponses.map(r => `✅ ${r.agentName} (${r.provider}): Agreed`).join('\n')}
-
-All participating agents have provided their input.`,
-      role: 'consensus',
-      timestamp: new Date().toISOString(),
-      agreed: true,
+    } catch {
+      return {
+        id: `consensus_${Date.now()}`,
+        agentName: 'Board Consensus',
+        icon: '🤝',
+        content: `Board Meeting Results:\n\n${successful.map(r => `✅ ${r.agentName}: Agreed`).join('\n')}\n\nAll participating agents have provided their input.`,
+        role: 'consensus',
+        timestamp: new Date().toISOString(),
+        ok: true,
+      }
     }
   }
 
@@ -300,32 +191,29 @@ All participating agents have provided their input.`,
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <h3 className="font-medium text-gray-900 mb-3 flex items-center">
           <Users className="w-5 h-5 mr-2" />
-          Board Members ({selectedAgents.length}/{localAgents.length})
+          Board Members ({selectedAgents.length}/{agents.length})
         </h3>
         <div className="flex flex-wrap gap-2">
-          {localAgents.map((agent: any, index: number) => {
-            const providerConfig = AGENT_PROVIDERS[index % AGENT_PROVIDERS.length]
-            const isSelected = selectedAgents.includes(agent.id)
+          {agents.map((agent) => {
+            const isSelected = selectedAgents.includes(agent.name)
             return (
               <button
-                key={agent.id}
-                onClick={() => toggleAgent(agent.id)}
-                className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                key={agent.name}
+                onClick={() => toggleAgent(agent.name)}
+                className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
                   isSelected
                     ? 'bg-primary-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
+                title={agent.specialty}
               >
-                <span className="mr-2">{providerConfig.icon}</span>
+                <span className="mr-2">{AGENT_ICONS[agent.name] || '🤖'}</span>
                 {agent.name}
-                <span className="ml-2 text-xs opacity-75">
-                  {providerConfig.provider}
-                </span>
               </button>
             )
           })}
-          {localAgents.length === 0 && (
-            <p className="text-gray-500 text-sm">No agents available. Create agents first.</p>
+          {agents.length === 0 && (
+            <p className="text-gray-500 text-sm">Loading agents...</p>
           )}
         </div>
       </div>
@@ -334,7 +222,7 @@ All participating agents have provided their input.`,
       <div className="bg-white rounded-lg border border-gray-200 flex flex-col h-[500px]">
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {boardHistory.map((msg: BoardMessage) => (
+          {boardHistory.map((msg) => (
             <div
               key={msg.id}
               className={`flex items-start space-x-3 ${
@@ -346,29 +234,23 @@ All participating agents have provided their input.`,
                 msg.role === 'consensus' ? 'bg-green-600' :
                 'bg-gray-200'
               }`}>
-                {msg.role === 'user' ? (
-                  <User className="w-5 h-5 text-white" />
-                ) : msg.role === 'consensus' ? (
-                  <CheckCircle className="w-5 h-5 text-white" />
-                ) : (
-                  <span>{msg.icon}</span>
-                )}
+                <span>{msg.icon}</span>
               </div>
               <div className={`max-w-[80%] rounded-lg px-4 py-3 ${
                 msg.role === 'user'
                   ? 'bg-primary-600 text-white'
                   : msg.role === 'consensus'
                   ? 'bg-green-50 text-green-900 border border-green-200'
-                  : msg.agreed
+                  : msg.ok
                   ? 'bg-gray-100 text-gray-900'
                   : 'bg-yellow-50 text-yellow-900 border border-yellow-200'
               }`}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium opacity-75">
-                    {msg.agentName} {msg.role !== 'user' && `• ${msg.provider}`}
+                  <span className="text-xs font-medium opacity-75 capitalize">
+                    {msg.agentName} {msg.provider && `• ${msg.provider}`}
                   </span>
                   {msg.role === 'agent' && (
-                    msg.agreed ? (
+                    msg.ok ? (
                       <CheckCircle className="w-4 h-4 text-green-500" />
                     ) : (
                       <XCircle className="w-4 h-4 text-yellow-500" />
@@ -391,7 +273,7 @@ All participating agents have provided their input.`,
             <div className="text-center text-gray-500 mt-20">
               <Users className="w-12 h-12 mx-auto mb-4 text-gray-300" />
               <p>Start a board meeting</p>
-              <p className="text-sm mt-1">All selected agents will respond using different AI models</p>
+              <p className="text-sm mt-1">All selected agents will respond using the active AI provider</p>
             </div>
           )}
         </div>
@@ -403,7 +285,7 @@ All participating agents have provided their input.`,
               type="text"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
               placeholder={`Ask the board (${selectedAgents.length} agents)...`}
               disabled={isLoading || selectedAgents.length === 0}
               className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:bg-gray-100"
@@ -422,12 +304,15 @@ All participating agents have provided their input.`,
 
       {/* Legend */}
       <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h3 className="font-medium text-gray-900 mb-2">AI Models Used</h3>
+        <h3 className="font-medium text-gray-900 mb-2 flex items-center">
+          <MessageSquare className="w-4 h-4 mr-2" />
+          Board Members & Specialties
+        </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-          {AGENT_PROVIDERS.map((p, i) => (
-            <div key={p.provider} className="flex items-center space-x-2">
-              <span>{p.icon}</span>
-              <span className="text-gray-600">{p.provider}</span>
+          {agents.map((agent) => (
+            <div key={agent.name} className="flex items-center space-x-2">
+              <span>{AGENT_ICONS[agent.name] || '🤖'}</span>
+              <span className="text-gray-600 capitalize">{agent.name}</span>
             </div>
           ))}
         </div>
