@@ -5,6 +5,7 @@ Automatically selects the best available provider based on configuration.
 import os
 import json
 import logging
+import asyncio
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from datetime import datetime
 import httpx
@@ -12,6 +13,17 @@ import httpx
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+def _retry_after_seconds(response: httpx.Response, default: float = 3.0, cap: float = 10.0) -> float:
+    """Parse a 429 response's Retry-After header (seconds), falling back to a short default."""
+    header = response.headers.get("retry-after")
+    if header:
+        try:
+            return min(float(header), cap)
+        except ValueError:
+            pass
+    return default
 
 
 def _split_content(content: Any) -> tuple:
@@ -305,14 +317,22 @@ class MultiProviderAIService:
                     "stream": stream,
                 }
 
-            if provider_id == "google":
-                endpoint = config["chat_endpoint"].format(
-                    model=model or self._get_model(provider_id), 
-                    key=api_key
-                )
-                response = await client.post(endpoint, json=payload)
-            else:
-                response = await client.post(config["chat_endpoint"], json=payload)
+            for attempt in range(2):
+                if provider_id == "google":
+                    endpoint = config["chat_endpoint"].format(
+                        model=model or self._get_model(provider_id),
+                        key=api_key
+                    )
+                    response = await client.post(endpoint, json=payload)
+                else:
+                    response = await client.post(config["chat_endpoint"], json=payload)
+
+                if response.status_code == 429 and attempt == 0:
+                    wait_s = _retry_after_seconds(response)
+                    logger.warning(f"{provider_id} rate limited, retrying in {wait_s:.1f}s")
+                    await asyncio.sleep(wait_s)
+                    continue
+                break
 
             response.raise_for_status()
             data = response.json()
@@ -438,50 +458,58 @@ class MultiProviderAIService:
                     tool_calls_acc: Dict[int, Dict[str, str]] = {}
                     finish_reason = None
 
-                    async with client.stream("POST", config["chat_endpoint"], json=payload) as response:
-                        if response.status_code >= 400:
-                            body = (await response.aread()).decode("utf-8", errors="replace")
-                            error_msg = f"HTTP {response.status_code}: {body[:200]}"
-                            if response.status_code == 401:
-                                error_msg = f"Invalid API key for {provider_id}. Please check your settings."
-                            elif response.status_code == 429:
-                                error_msg = f"Rate limit exceeded for {provider_id}. Please try again later."
-                            self._metrics["errors"] += 1
-                            yield {"error": error_msg}
-                            return
-
-                        async for line in response.aiter_lines():
-                            if not line.startswith("data: "):
+                    for attempt in range(2):
+                        async with client.stream("POST", config["chat_endpoint"], json=payload) as response:
+                            if response.status_code == 429 and attempt == 0:
+                                wait_s = _retry_after_seconds(response)
+                                logger.warning(f"{provider_id} rate limited, retrying in {wait_s:.1f}s")
+                                await asyncio.sleep(wait_s)
                                 continue
-                            data = line[len("data: "):].strip()
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                            except json.JSONDecodeError:
-                                continue
-                            choice = chunk.get("choices", [{}])[0]
-                            delta = choice.get("delta", {})
 
-                            if delta.get("content"):
-                                full_content += delta["content"]
-                                yield {"delta": delta["content"]}
+                            if response.status_code >= 400:
+                                body = (await response.aread()).decode("utf-8", errors="replace")
+                                error_msg = f"HTTP {response.status_code}: {body[:200]}"
+                                if response.status_code == 401:
+                                    error_msg = f"Invalid API key for {provider_id}. Please check your settings."
+                                elif response.status_code == 429:
+                                    error_msg = f"Rate limit exceeded for {provider_id}. Please try again later."
+                                self._metrics["errors"] += 1
+                                yield {"error": error_msg}
+                                return
 
-                            for tc in delta.get("tool_calls", []) or []:
-                                idx = tc.get("index", 0)
-                                entry = tool_calls_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
-                                if tc.get("id"):
-                                    entry["id"] = tc["id"]
-                                fn = tc.get("function", {})
-                                if fn.get("name"):
-                                    entry["name"] = fn["name"]
-                                if fn.get("arguments"):
-                                    entry["arguments"] += fn["arguments"]
+                            async for line in response.aiter_lines():
+                                if not line.startswith("data: "):
+                                    continue
+                                data = line[len("data: "):].strip()
+                                if data == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(data)
+                                except json.JSONDecodeError:
+                                    continue
+                                choice = chunk.get("choices", [{}])[0]
+                                delta = choice.get("delta", {})
 
-                            if choice.get("finish_reason"):
-                                finish_reason = choice["finish_reason"]
-                            if chunk.get("usage"):
-                                usage = chunk["usage"]
+                                if delta.get("content"):
+                                    full_content += delta["content"]
+                                    yield {"delta": delta["content"]}
+
+                                for tc in delta.get("tool_calls", []) or []:
+                                    idx = tc.get("index", 0)
+                                    entry = tool_calls_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
+                                    if tc.get("id"):
+                                        entry["id"] = tc["id"]
+                                    fn = tc.get("function", {})
+                                    if fn.get("name"):
+                                        entry["name"] = fn["name"]
+                                    if fn.get("arguments"):
+                                        entry["arguments"] += fn["arguments"]
+
+                                if choice.get("finish_reason"):
+                                    finish_reason = choice["finish_reason"]
+                                if chunk.get("usage"):
+                                    usage = chunk["usage"]
+                        break
 
                     if finish_reason != "tool_calls" or not tool_calls_acc:
                         self._metrics["requests"] += 1

@@ -231,7 +231,7 @@ export default function AgentChat() {
         .concat([{
           id: generateId(),
           role: 'system',
-          content: `Error: ${detail}. Please check your API configuration.`,
+          content: `Error: ${detail}`,
           timestamp: new Date().toISOString(),
         }])
       )
