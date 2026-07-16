@@ -36,11 +36,14 @@ export type VoiceAssistantStatus =
   | 'listening-for-command'
   | 'speaking'
 
+const FATAL_ERRORS = new Set(['not-allowed', 'audio-capture', 'service-not-allowed'])
+
 interface UseVoiceAssistantOptions {
   onCommand: (transcript: string) => void
+  onError?: (message: string) => void
 }
 
-export function useVoiceAssistant({ onCommand }: UseVoiceAssistantOptions) {
+export function useVoiceAssistant({ onCommand, onError }: UseVoiceAssistantOptions) {
   const SpeechRecognitionCtor = getSpeechRecognition()
   const [status, setStatus] = useState<VoiceAssistantStatus>(SpeechRecognitionCtor ? 'off' : 'unsupported')
   const [liveTranscript, setLiveTranscript] = useState('')
@@ -50,6 +53,8 @@ export function useVoiceAssistant({ onCommand }: UseVoiceAssistantOptions) {
   const modeRef = useRef<'wake' | 'command'>('wake')
   const onCommandRef = useRef(onCommand)
   onCommandRef.current = onCommand
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
 
   const speak = useCallback((text: string) => {
     if (!('speechSynthesis' in window) || !text) return
@@ -93,16 +98,29 @@ export function useVoiceAssistant({ onCommand }: UseVoiceAssistantOptions) {
       setLiveTranscript(finalTranscript || interimTranscript)
       if (finalTranscript.trim()) {
         recognition.abort()
+        modeRef.current = 'wake'
         onCommandRef.current(finalTranscript.trim())
         setStatus(enabledRef.current ? 'listening-for-wake' : 'off')
       }
     }
 
     recognition.onerror = (event) => {
-      if (event.error === 'no-speech' && modeRef.current === 'command') {
-        // gave up waiting for the command - go back to listening for the wake phrase
-        setStatus(enabledRef.current ? 'listening-for-wake' : 'off')
+      if (event.error === 'aborted') return // we called .abort() ourselves - part of normal flow
+
+      if (FATAL_ERRORS.has(event.error)) {
+        enabledRef.current = false
+        setStatus(SpeechRecognitionCtor ? 'off' : 'unsupported')
+        onErrorRef.current?.(
+          event.error === 'audio-capture'
+            ? 'No microphone detected. Voice control has been turned off.'
+            : 'Microphone access was denied. Please allow microphone permissions and try again.'
+        )
+        return
       }
+
+      // recoverable error (e.g. no-speech, network) - fall back to wake listening
+      modeRef.current = 'wake'
+      setStatus(enabledRef.current ? 'listening-for-wake' : 'off')
     }
 
     recognition.onend = () => {

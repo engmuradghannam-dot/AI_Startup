@@ -3,11 +3,12 @@ import { useQuery } from 'react-query'
 import {
   Send, Bot, User, Trash2, Download,
   Brain, Sparkles, Loader2, Cloud, CheckCircle, AlertCircle,
-  Server, Zap, Mic, MicOff
+  Server, Zap, Mic, MicOff, Plus, Pencil, MessageSquare, Paperclip, X, FileText
 } from 'lucide-react'
 import { aiChatApi } from '../services/api'
 import toast from 'react-hot-toast'
 import { useVoiceAssistant, ASSISTANT_NAME } from '../hooks/useVoiceAssistant'
+import { useChatProjects } from '../hooks/useChatProjects'
 
 interface ChatMessage {
   id: string
@@ -18,7 +19,18 @@ interface ChatMessage {
   source?: string
   provider?: string
   agentTrace?: any[]
+  attachmentName?: string
 }
+
+interface PendingAttachment {
+  name: string
+  contentType: string
+  data: string // UTF-8 text, or base64 for images
+  isBase64: boolean
+}
+
+const TEXT_EXTENSIONS = /\.(txt|md|markdown|json|csv|log|py|js|jsx|ts|tsx|html|css|yml|yaml|xml|sh|java|c|cpp|go|rs|rb|php|sql)$/i
+const MAX_ATTACHMENT_CHARS = 15000
 
 interface AIModel {
   id: string
@@ -45,7 +57,23 @@ export default function AgentChat() {
   const [isLoading, setIsLoading] = useState(false)
   const [showAgentTrace, setShowAgentTrace] = useState(false)
   const [lastTrace, setLastTrace] = useState<any[]>([])
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null)
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const prevProjectIdRef = useRef<string | null>(null)
+
+  const {
+    projects,
+    activeProjectId,
+    activeProject,
+    switchProject,
+    createProject,
+    renameProject,
+    deleteProject,
+    updateActiveMessages,
+  } = useChatProjects()
 
   const { data: healthData } = useQuery('ai-health', () => aiChatApi.getHealth(), { refetchInterval: 30000 })
   const { data: modelsData } = useQuery('ai-models', () => aiChatApi.getModels(), { refetchInterval: 60000 })
@@ -62,32 +90,55 @@ export default function AgentChat() {
     scrollToBottom()
   }, [chatHistory])
 
+  // Load this project's saved conversation whenever we switch to it
+  useEffect(() => {
+    if (!activeProjectId || prevProjectIdRef.current === activeProjectId) return
+    prevProjectIdRef.current = activeProjectId
+    setChatHistory((activeProject?.messages as ChatMessage[]) || [])
+    setLastTrace([])
+  }, [activeProjectId, activeProject])
+
+  // Persist every change back to the active project so it survives closing/reopening the app
+  useEffect(() => {
+    if (!activeProjectId || prevProjectIdRef.current !== activeProjectId) return
+    updateActiveMessages(chatHistory)
+  }, [chatHistory, activeProjectId, updateActiveMessages])
+
   const generateId = () => Math.random().toString(36).substring(2, 10)
 
   const handleSend = async (overrideText?: string): Promise<string | null> => {
-    const textToSend = overrideText ?? message
-    if (!textToSend.trim() || isLoading) return null
+    const attachment = overrideText === undefined ? pendingAttachment : null
+    const textToSend = overrideText ?? message ?? ''
+    if ((!textToSend.trim() && !attachment) || isLoading) return null
+    const effectiveText = textToSend.trim() || `Please look at the attached file: ${attachment?.name}`
 
     const userMessage: ChatMessage = {
       id: generateId(),
       role: 'user',
-      content: textToSend,
+      content: effectiveText,
       timestamp: new Date().toISOString(),
+      attachmentName: attachment?.name,
     }
 
     setChatHistory(prev => [...prev, userMessage])
-    if (overrideText === undefined) setMessage('')
+    if (overrideText === undefined) {
+      setMessage('')
+      setPendingAttachment(null)
+    }
     setIsLoading(true)
 
     try {
       const messages = chatHistory
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role, content: m.content }))
-        .concat([{ role: 'user', content: textToSend }])
+        .concat([{ role: 'user', content: effectiveText }])
 
       const response = await aiChatApi.chat(messages, {
         model: selectedModel || undefined,
         agent_mode: agentMode,
+        attachment: attachment
+          ? { name: attachment.name, content_type: attachment.contentType, data: attachment.data, is_base64: attachment.isBase64 }
+          : undefined,
       })
 
       const replyContent = response.choices?.[0]?.message?.content || 'No response'
@@ -131,6 +182,7 @@ export default function AgentChat() {
       const reply = await handleSend(transcript)
       if (reply) speak(reply)
     },
+    onError: (msg) => toast.error(msg),
   })
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -158,10 +210,111 @@ export default function AgentChat() {
     toast.success('Chat exported')
   }
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    const isImage = file.type.startsWith('image/')
+    const isText = file.type.startsWith('text/') || TEXT_EXTENSIONS.test(file.name) || file.type === 'application/json'
+
+    if (!isImage && !isText) {
+      toast.error('Unsupported file type. Attach a text/code file or an image.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      if (isImage) {
+        // data URL looks like "data:image/png;base64,AAAA..." - keep just the base64 part
+        const base64 = result.split(',')[1] || ''
+        setPendingAttachment({ name: file.name, contentType: file.type, data: base64, isBase64: true })
+      } else {
+        const truncated = result.length > MAX_ATTACHMENT_CHARS
+          ? result.slice(0, MAX_ATTACHMENT_CHARS) + '\n...[truncated]'
+          : result
+        setPendingAttachment({ name: file.name, contentType: file.type || 'text/plain', data: truncated, isBase64: false })
+      }
+    }
+    reader.onerror = () => toast.error('Could not read file')
+
+    if (isImage) reader.readAsDataURL(file)
+    else reader.readAsText(file)
+  }
+
+  const startRenaming = (id: string, currentName: string) => {
+    setRenamingProjectId(id)
+    setRenameValue(currentName)
+  }
+
+  const commitRename = () => {
+    if (renamingProjectId && renameValue.trim()) {
+      renameProject(renamingProjectId, renameValue.trim())
+    }
+    setRenamingProjectId(null)
+  }
+
   return (
     <div className="flex h-[calc(100vh-4rem)]">
       {/* Sidebar */}
       <div className="w-80 bg-gray-900 border-r border-gray-800 flex flex-col">
+        {/* Conversations Panel */}
+        <div className="p-4 border-b border-gray-800">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+              Conversations
+            </h3>
+            <button
+              onClick={() => createProject()}
+              className="p-1 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+              title="New conversation"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {projects.map((project) => (
+              <div
+                key={project.id}
+                onClick={() => switchProject(project.id)}
+                className={`group flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-sm ${
+                  project.id === activeProjectId ? 'bg-blue-900/40 text-blue-200' : 'text-gray-400 hover:bg-gray-800'
+                }`}
+              >
+                <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
+                {renamingProjectId === project.id ? (
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenamingProjectId(null) }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="flex-1 bg-gray-950 border border-gray-700 rounded px-1 text-xs text-white outline-none"
+                  />
+                ) : (
+                  <span className="flex-1 truncate">{project.name}</span>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); startRenaming(project.id, project.name) }}
+                  className="opacity-0 group-hover:opacity-100 hover:text-white flex-shrink-0"
+                  title="Rename"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); deleteProject(project.id) }}
+                  className="opacity-0 group-hover:opacity-100 hover:text-red-400 flex-shrink-0"
+                  title="Delete"
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* Status Panel */}
         <div className="p-4 border-b border-gray-800">
           <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
@@ -411,6 +564,13 @@ export default function AgentChat() {
               >
                 <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
 
+                {msg.attachmentName && (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs opacity-80">
+                    <FileText className="w-3 h-3" />
+                    <span>{msg.attachmentName}</span>
+                  </div>
+                )}
+
                 {msg.source && (
                   <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
                     <Cloud className="w-3 h-3" />
@@ -450,7 +610,30 @@ export default function AgentChat() {
         {/* Input Area */}
         <div className="border-t border-gray-800 p-4">
           <div className="max-w-4xl mx-auto">
+            {pendingAttachment && (
+              <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-300 w-fit">
+                <FileText className="w-3.5 h-3.5" />
+                <span>{pendingAttachment.name}</span>
+                <button onClick={() => setPendingAttachment(null)} className="text-gray-500 hover:text-red-400">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
             <div className="flex items-end gap-2 bg-gray-900 rounded-xl border border-gray-700 p-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleFileSelect}
+                className="hidden"
+                accept="image/*,text/*,.md,.json,.csv,.log,.py,.js,.jsx,.ts,.tsx,.html,.css,.yml,.yaml,.xml,.sh,.java,.c,.cpp,.go,.rs,.rb,.php,.sql"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors flex-shrink-0"
+                title="Attach a file"
+              >
+                <Paperclip className="w-5 h-5" />
+              </button>
               <textarea
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
@@ -461,7 +644,7 @@ export default function AgentChat() {
               />
               <button
                 onClick={() => handleSend()}
-                disabled={!message.trim() || isLoading}
+                disabled={(!message.trim() && !pendingAttachment) || isLoading}
                 className="p-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
               >
                 <Send className="w-5 h-5" />

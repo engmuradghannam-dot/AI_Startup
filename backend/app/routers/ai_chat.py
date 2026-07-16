@@ -22,6 +22,13 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ChatAttachment(BaseModel):
+    name: str
+    content_type: str
+    data: str  # plain text, or base64 if is_base64
+    is_base64: bool = False
+
+
 class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     model: Optional[str] = None
@@ -30,6 +37,32 @@ class ChatRequest(BaseModel):
     stream: bool = False
     agent_mode: Optional[str] = "auto"  # auto, single, multi, swarm
     mode: Optional[str] = None  # alias for agent_mode
+    attachment: Optional[ChatAttachment] = None
+
+
+MAX_ATTACHMENT_CHARS = 15000
+
+
+def _apply_attachment(messages: List[dict], attachment: Optional[ChatAttachment]) -> List[dict]:
+    """Fold an attachment into the last user message so the model can see it."""
+    if not attachment or not messages:
+        return messages
+
+    last = messages[-1]
+
+    if attachment.content_type.startswith("image/") and attachment.is_base64:
+        last["content"] = [
+            {"type": "text", "text": last["content"]},
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{attachment.content_type};base64,{attachment.data}"},
+            },
+        ]
+        return messages
+
+    text = attachment.data[:MAX_ATTACHMENT_CHARS]
+    last["content"] = f"{last['content']}\n\n[Attached file: {attachment.name}]\n{text}"
+    return messages
 
 
 class AgentChatRequest(BaseModel):
@@ -71,6 +104,20 @@ async def chat(request: ChatRequest):
         messages = [{"role": m.role, "content": m.content} for m in request.messages]
         agent_mode = request.mode or request.agent_mode or "auto"
 
+        is_image_attachment = bool(
+            request.attachment
+            and request.attachment.content_type.startswith("image/")
+            and request.attachment.is_base64
+        )
+
+        if request.attachment and not is_image_attachment:
+            # text-like attachments just extend the message content - safe for any mode
+            messages = _apply_attachment(messages, request.attachment)
+
+        # Vision content only works through the direct single-LLM path
+        if is_image_attachment:
+            agent_mode = "single"
+
         # Auto-detect if multi-agent is needed
         if agent_mode == "auto":
             last_message = messages[-1]["content"] if messages else ""
@@ -84,6 +131,9 @@ async def chat(request: ChatRequest):
                 agent_mode = "single"
 
         if agent_mode == "single":
+            if is_image_attachment:
+                messages = _apply_attachment(messages, request.attachment)
+
             # Direct LLM call
             result = await unified_ai.chat_completion(
                 messages=messages,

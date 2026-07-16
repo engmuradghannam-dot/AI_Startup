@@ -59,6 +59,7 @@ export const aiChatApi = {
       max_tokens: options.max_tokens || 2048,
       stream: options.stream || false,
       agent_mode: options.agent_mode || 'auto',
+      attachment: options.attachment || null,
     })
     return res.data
   },

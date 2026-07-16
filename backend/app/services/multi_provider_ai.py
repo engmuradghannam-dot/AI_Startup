@@ -14,6 +14,26 @@ from app.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+def _split_content(content: Any) -> tuple:
+    """Split an OpenAI-style content value into (text, image_data_url).
+
+    content is either a plain string, or a list of
+    [{"type": "text", "text": ...}, {"type": "image_url", "image_url": {"url": "data:..."}}]
+    parts as produced by the chat router when an image is attached.
+    """
+    if isinstance(content, str):
+        return content, None
+
+    text = ""
+    image_url = None
+    for part in content:
+        if part.get("type") == "text":
+            text = part.get("text", "")
+        elif part.get("type") == "image_url":
+            image_url = part.get("image_url", {}).get("url")
+    return text, image_url
+
+
 class MultiProviderAIService:
     """Multi-provider AI service supporting Groq, OpenAI, Gemini, Claude, etc."""
 
@@ -227,9 +247,24 @@ class MultiProviderAIService:
             )
 
             if provider_id == "anthropic":
+                anthropic_messages = []
+                for msg in messages:
+                    text, image_url = _split_content(msg["content"])
+                    if image_url:
+                        media_type, b64_data = image_url.split(";base64,", 1) if ";base64," in image_url else ("image/jpeg", "")
+                        media_type = media_type.replace("data:", "")
+                        anthropic_messages.append({
+                            "role": msg["role"],
+                            "content": [
+                                {"type": "text", "text": text},
+                                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64_data}},
+                            ],
+                        })
+                    else:
+                        anthropic_messages.append({"role": msg["role"], "content": text})
                 payload = {
                     "model": model or self._get_model(provider_id),
-                    "messages": messages,
+                    "messages": anthropic_messages,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                 }
@@ -237,7 +272,13 @@ class MultiProviderAIService:
                 gemini_messages = []
                 for msg in messages:
                     role = "user" if msg["role"] == "user" else "model"
-                    gemini_messages.append({"role": role, "parts": [{"text": msg["content"]}]})
+                    text, image_url = _split_content(msg["content"])
+                    parts = [{"text": text}]
+                    if image_url and ";base64," in image_url:
+                        media_type, b64_data = image_url.split(";base64,", 1)
+                        media_type = media_type.replace("data:", "")
+                        parts.append({"inline_data": {"mime_type": media_type, "data": b64_data}})
+                    gemini_messages.append({"role": role, "parts": parts})
                 payload = {
                     "contents": gemini_messages,
                     "generationConfig": {
@@ -246,10 +287,13 @@ class MultiProviderAIService:
                     },
                 }
             elif provider_id == "cohere":
+                last_text, _ = _split_content(messages[-1]["content"]) if messages else ("", None)
                 payload = {
                     "model": model or self._get_model(provider_id),
-                    "message": messages[-1]["content"] if messages else "",
-                    "chat_history": [{"role": m["role"], "message": m["content"]} for m in messages[:-1]],
+                    "message": last_text,
+                    "chat_history": [
+                        {"role": m["role"], "message": _split_content(m["content"])[0]} for m in messages[:-1]
+                    ],
                     "temperature": temperature,
                 }
             else:
