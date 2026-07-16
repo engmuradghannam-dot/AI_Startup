@@ -10,6 +10,18 @@ const api = axios.create({
   },
 })
 
+// Stable anonymous id for this browser - lets the assistant remember
+// preferences/corrections across conversations without a login system.
+const USER_ID_KEY = 'ai-startup:anonymous-user-id'
+export const getAnonymousUserId = (): string => {
+  let id = localStorage.getItem(USER_ID_KEY)
+  if (!id) {
+    id = 'anon-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36)
+    localStorage.setItem(USER_ID_KEY, id)
+  }
+  return id
+}
+
 // Helper to ensure response data is an Array
 const ensureArray = (response: any): any[] => {
   if (!response) return []
@@ -60,6 +72,7 @@ export const aiChatApi = {
       stream: options.stream || false,
       agent_mode: options.agent_mode || 'auto',
       attachment: options.attachment || null,
+      user_id: options.user_id === undefined ? getAnonymousUserId() : options.user_id,
     })
     return res.data
   },
@@ -81,6 +94,7 @@ export const aiChatApi = {
         max_tokens: options.max_tokens || 2048,
         agent_mode: options.agent_mode || 'auto',
         attachment: options.attachment || null,
+        user_id: options.user_id === undefined ? getAnonymousUserId() : options.user_id,
       }),
     })
 

@@ -12,6 +12,7 @@ from collections import defaultdict
 import numpy as np
 
 from app.config import get_settings
+from app.models.memory import MemoryEntry as MemoryEntryDoc
 
 
 class MemoryEntry:
@@ -62,11 +63,32 @@ class AdvancedMemorySystem:
         self.max_short_term = 10
         self.max_long_term = 1000
         self.decay_rate = 0.01  # Memory decay per day
+        self._loaded_agents: set = set()
+
+    async def _ensure_loaded(self, agent_id: str):
+        """Load this agent's persisted memories from MongoDB the first time it's touched
+        this process, so memory survives a restart. Silently no-ops without a DB."""
+        if agent_id in self._loaded_agents:
+            return
+        self._loaded_agents.add(agent_id)
+        try:
+            docs = await MemoryEntryDoc.find(MemoryEntryDoc.agent_id == agent_id).to_list()
+            for doc in docs:
+                entry = MemoryEntry(
+                    content=doc.content, agent_id=doc.agent_id, memory_type=doc.memory_type,
+                    importance=doc.importance, tags=doc.tags, metadata=doc.metadata,
+                )
+                entry.created_at = doc.created_at
+                self.memories[agent_id].append(entry)
+        except Exception:
+            pass
 
     async def store(self, content: str, agent_id: str, memory_type: str = "episodic",
                    importance: float = 0.5, tags: List[str] = None,
                    metadata: Dict = None) -> MemoryEntry:
         """Store a new memory."""
+        await self._ensure_loaded(agent_id)
+
         entry = MemoryEntry(
             content=content,
             agent_id=agent_id,
@@ -86,12 +108,22 @@ class AdvancedMemorySystem:
         # Maintain size limits
         await self._maintain_size(agent_id)
 
+        # best-effort persistence so this survives a restart
+        try:
+            await MemoryEntryDoc(
+                agent_id=agent_id, content=content, memory_type=memory_type,
+                importance=importance, tags=tags or [], metadata=metadata or {},
+            ).insert()
+        except Exception:
+            pass
+
         return entry
 
-    async def retrieve(self, query: str, agent_id: str, 
+    async def retrieve(self, query: str, agent_id: str,
                       memory_type: Optional[str] = None,
                       limit: int = 5) -> List[MemoryEntry]:
         """Retrieve relevant memories using semantic similarity."""
+        await self._ensure_loaded(agent_id)
         agent_memories = self.memories.get(agent_id, [])
 
         if memory_type:
@@ -127,6 +159,7 @@ class AdvancedMemorySystem:
     async def retrieve_by_tags(self, agent_id: str, tags: List[str],
                                limit: int = 10) -> List[MemoryEntry]:
         """Retrieve memories by tags."""
+        await self._ensure_loaded(agent_id)
         agent_memories = self.memories.get(agent_id, [])
         results = []
 
@@ -157,6 +190,7 @@ class AdvancedMemorySystem:
 
     async def get_memory_stats(self, agent_id: str) -> Dict:
         """Get memory statistics for an agent."""
+        await self._ensure_loaded(agent_id)
         agent_memories = self.memories.get(agent_id, [])
 
         return {

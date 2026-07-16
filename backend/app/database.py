@@ -4,7 +4,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
 from app.models.agent import Agent
 from app.models.skill import Skill
-from app.models.memory import TrainingDataset, MemoryEntry, FeedbackEntry
+from app.models.memory import TrainingDataset, MemoryEntry, FeedbackEntry, LearningPatternDoc
 from app.models.task import Task
 
 _client = None
@@ -44,6 +44,7 @@ async def init_db():
                 TrainingDataset,
                 MemoryEntry,
                 FeedbackEntry,
+                LearningPatternDoc,
                 Task,
             ]
         )

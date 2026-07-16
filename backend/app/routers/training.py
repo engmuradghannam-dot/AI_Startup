@@ -6,7 +6,7 @@ import uuid
 import json
 
 from app.models.memory import TrainingDataset, MemoryEntry, FeedbackEntry, MemoryType
-from app.services.feedback_loop import get_feedback_loop
+from app.services.self_learning import get_learning_system
 from app.services.knowledge_graph import get_knowledge_graph_service
 
 router = APIRouter(prefix="/training", tags=["Training"])
@@ -82,15 +82,14 @@ async def submit_feedback(
 ):
     """Submit feedback for learning."""
     try:
-        feedback_loop = await get_feedback_loop()
-        feedback = await feedback_loop.submit_feedback(
+        learning_system = await get_learning_system()
+        await learning_system.record_interaction(
             agent_id=agent_id,
-            task_id=task_id,
-            rating=rating,
-            comment=comment,
-            skill_id=skill_id,
+            query=task_id,
+            response="",
+            feedback={"rating": rating, "comment": comment, "skill_id": skill_id},
         )
-        return {"id": str(feedback.id), "status": "submitted"}
+        return {"id": str(uuid.uuid4()), "status": "submitted"}
     except Exception as e:
         return {"id": str(uuid.uuid4()), "status": "submitted_mock"}
 
@@ -99,9 +98,12 @@ async def submit_feedback(
 async def process_feedback(limit: int = Query(100, ge=1, le=1000)):
     """Process pending feedback."""
     try:
-        feedback_loop = await get_feedback_loop()
-        result = await feedback_loop.batch_process_feedback(limit)
-        return result
+        learning_system = await get_learning_system()
+        processed = 0
+        for agent_id in list(learning_system.feedback_history.keys()):
+            await learning_system.learn_from_feedback(agent_id)
+            processed += len(learning_system.feedback_history[agent_id][:limit])
+        return {"status": "processed", "processed": processed}
     except Exception as e:
         return {"status": "error", "message": str(e), "processed": 0}
 
@@ -110,8 +112,15 @@ async def process_feedback(limit: int = Query(100, ge=1, le=1000)):
 async def get_feedback_stats(agent_id: Optional[str] = None):
     """Get feedback statistics."""
     try:
-        feedback_loop = await get_feedback_loop()
-        return await feedback_loop.get_learning_stats(agent_id)
+        learning_system = await get_learning_system()
+        if not agent_id:
+            return {
+                "total_feedback": sum(len(h) for h in learning_system.feedback_history.values()),
+                "average_rating": 0,
+                "improvements": [],
+                "agent_id": None,
+            }
+        return await learning_system.get_learning_stats(agent_id)
     except Exception as e:
         return {
             "total_feedback": 0,

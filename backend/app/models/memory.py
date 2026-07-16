@@ -45,12 +45,31 @@ class MemoryEntry(Document):
     content: str
     memory_type: str = "general"
     importance: float = Field(default=0.5, ge=0.0, le=1.0)
+    tags: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
 
     class Settings:
         name = "memory_entries"
+
+
+class LearningPatternDoc(Document):
+    """Persisted learned pattern, so self-learning survives a server restart."""
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
+    agent_id: Indexed(str)
+    pattern_type: str  # preference, correction, enhancement
+    trigger: str
+    response: str
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    source: str = "interaction"
+    usage_count: int = 0
+    success_rate: float = 0.5
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "learning_patterns"
 
 class MemoryCreate(BaseModel):
     agent_id: str

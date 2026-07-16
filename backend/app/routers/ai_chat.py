@@ -1,6 +1,6 @@
 """AI Chat API routes - Uses Unified AI Service (Local LLM first, Groq fallback)."""
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, BackgroundTasks
 from pydantic import BaseModel
 import os
 import httpx
@@ -43,6 +43,7 @@ class ChatRequest(BaseModel):
     agent_mode: Optional[str] = "auto"  # auto, single, multi, swarm
     mode: Optional[str] = None  # alias for agent_mode
     attachment: Optional[ChatAttachment] = None
+    user_id: Optional[str] = None  # stable anonymous id - lets the assistant remember/learn per-browser
 
 
 MAX_ATTACHMENT_CHARS = 15000
@@ -148,17 +149,60 @@ async def _resolve_messages_and_mode(request: ChatRequest) -> tuple:
         else:
             agent_mode = "single"
 
+    if request.user_id and messages:
+        last_content = messages[-1]["content"]
+        query_text = last_content if isinstance(last_content, str) else ""
+        try:
+            from app.services.advanced_memory import get_memory_system
+            from app.services.self_learning import get_learning_system
+
+            memory_system = await get_memory_system()
+            learning_system = await get_learning_system()
+            memories = await memory_system.retrieve(query_text, agent_id=request.user_id, limit=3)
+            patterns = await learning_system.get_relevant_patterns(request.user_id, query_text, limit=3)
+
+            context_parts = []
+            if memories:
+                context_parts.append(
+                    "Things you remember about this user from past conversations:\n"
+                    + "\n".join(f"- {m.content}" for m in memories)
+                )
+            corrections = [p.response for p in patterns if p.pattern_type == "correction" and p.response]
+            if corrections:
+                context_parts.append(
+                    "This user has previously corrected responses like this - avoid repeating those mistakes:\n"
+                    + "\n".join(f"- {c}" for c in corrections)
+                )
+
+            if context_parts:
+                messages.insert(0, {"role": "system", "content": "\n\n".join(context_parts)})
+        except Exception:
+            pass  # memory/learning is best-effort - never block the chat over it
+
     return messages, agent_mode
 
 
+async def _record_interaction_background(user_id: Optional[str], query: str, response: str):
+    """Fire-and-forget: log this exchange so learn_from_feedback has history to work with."""
+    if not user_id or not isinstance(query, str):
+        return
+    try:
+        from app.services.self_learning import get_learning_system
+        learning_system = await get_learning_system()
+        await learning_system.record_interaction(agent_id=user_id, query=query, response=response)
+    except Exception:
+        pass
+
+
 @router.post("/chat")
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
     """Main chat endpoint - auto-detects complexity and uses appropriate mode."""
     try:
         unified_ai = await get_unified_ai_service()
         orchestrator = await get_multi_agent_orchestrator()
 
         messages, agent_mode = await _resolve_messages_and_mode(request)
+        query_text = messages[-1]["content"] if messages else ""
 
         if agent_mode == "single":
             # Direct LLM call
@@ -169,6 +213,8 @@ async def chat(request: ChatRequest):
                 max_tokens=request.max_tokens,
                 stream=request.stream,
             )
+
+            background_tasks.add_task(_record_interaction_background, request.user_id, query_text, result["content"])
 
             return {
                 "id": f"chat-{os.urandom(4).hex()}",
@@ -190,6 +236,8 @@ async def chat(request: ChatRequest):
 
             mode = "hierarchical" if agent_mode == "multi" else agent_mode
             result = await orchestrator.execute_multi(task, mode=mode, context=context)
+
+            background_tasks.add_task(_record_interaction_background, request.user_id, query_text, result["final_output"])
 
             return {
                 "id": f"agent-{os.urandom(4).hex()}",
@@ -242,10 +290,12 @@ async def chat_stream(request: ChatRequest):
         try:
             unified_ai = await get_unified_ai_service()
             messages, agent_mode = await _resolve_messages_and_mode(request)
+            query_text = messages[-1]["content"] if messages else ""
 
             if agent_mode == "single":
                 from app.services.tools import TOOL_DEFINITIONS
 
+                full_content = ""
                 async for event in unified_ai.stream_completion(
                     messages=messages, model=request.model,
                     temperature=request.temperature, max_tokens=request.max_tokens,
@@ -255,6 +305,7 @@ async def chat_stream(request: ChatRequest):
                         yield sse({"error": event["error"]})
                         return
                     if "delta" in event:
+                        full_content += event["delta"]
                         yield sse({"delta": event["delta"]})
                     if "tool_call" in event:
                         yield sse({"tool_call": event["tool_call"]})
@@ -266,6 +317,7 @@ async def chat_stream(request: ChatRequest):
                             "source": event.get("provider"),
                             "usage": event.get("usage", {}),
                         })
+                await _record_interaction_background(request.user_id, query_text, full_content)
             else:
                 orchestrator = await get_multi_agent_orchestrator()
                 task = messages[-1]["content"] if messages else ""
@@ -284,6 +336,7 @@ async def chat_stream(request: ChatRequest):
                         for t in result.get("agent_trace", [])
                     ],
                 })
+                await _record_interaction_background(request.user_id, query_text, result["final_output"])
         except Exception as e:
             yield sse({"error": str(e)})
 

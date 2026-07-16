@@ -11,7 +11,7 @@ from collections import defaultdict
 import asyncio
 
 from app.services.advanced_memory import get_memory_system, MemoryEntry
-from app.services.groq_service import get_groq_service
+from app.models.memory import LearningPatternDoc
 
 
 class LearningPattern:
@@ -56,10 +56,32 @@ class SelfLearningSystem:
         })
         self.learning_queue: asyncio.Queue = asyncio.Queue()
         self.is_learning = False
+        self._loaded_agents: set = set()
 
-    async def record_interaction(self, agent_id: str, query: str, 
+    async def _ensure_loaded(self, agent_id: str):
+        """Load this agent's persisted patterns from MongoDB the first time it's
+        touched this process, so learning survives a restart. No-ops without a DB."""
+        if agent_id in self._loaded_agents:
+            return
+        self._loaded_agents.add(agent_id)
+        try:
+            docs = await LearningPatternDoc.find(LearningPatternDoc.agent_id == agent_id).to_list()
+            for doc in docs:
+                pattern = LearningPattern(
+                    pattern_type=doc.pattern_type, trigger=doc.trigger, response=doc.response,
+                    confidence=doc.confidence, source=doc.source,
+                )
+                pattern.created_at = doc.created_at
+                pattern.usage_count = doc.usage_count
+                pattern.success_rate = doc.success_rate
+                self.patterns[agent_id].append(pattern)
+        except Exception:
+            pass
+
+    async def record_interaction(self, agent_id: str, query: str,
                                 response: str, feedback: Optional[Dict] = None):
         """Record an interaction for learning."""
+        await self._ensure_loaded(agent_id)
         interaction = {
             "query": query,
             "response": response,
@@ -88,8 +110,19 @@ class SelfLearningSystem:
             "interaction": interaction,
         })
 
+    async def _persist_pattern(self, agent_id: str, pattern: "LearningPattern"):
+        """Best-effort persistence so a learned pattern survives a restart."""
+        try:
+            await LearningPatternDoc(
+                agent_id=agent_id, pattern_type=pattern.pattern_type, trigger=pattern.trigger,
+                response=pattern.response, confidence=pattern.confidence, source=pattern.source,
+            ).insert()
+        except Exception:
+            pass
+
     async def learn_from_feedback(self, agent_id: str):
         """Learn from collected feedback."""
+        await self._ensure_loaded(agent_id)
         history = self.feedback_history.get(agent_id, [])
         if len(history) < 5:
             return
@@ -111,6 +144,7 @@ class SelfLearningSystem:
                 source="positive_feedback"
             )
             self.patterns[agent_id].append(pattern)
+            await self._persist_pattern(agent_id, pattern)
 
         # Learn from negative examples (what to avoid)
         for interaction in negative:
@@ -122,6 +156,7 @@ class SelfLearningSystem:
                 source="negative_feedback"
             )
             self.patterns[agent_id].append(pattern)
+            await self._persist_pattern(agent_id, pattern)
 
         # Calculate improvement
         metrics = self.performance_metrics[agent_id]
@@ -129,29 +164,32 @@ class SelfLearningSystem:
             recent_success = len(positive) / len(recent) if recent else 0
             metrics["improvement_rate"] = recent_success - metrics["user_satisfaction"]
 
-    async def get_improved_response(self, agent_id: str, query: str,
-                                    base_response: str) -> Tuple[str, List[Dict]]:
-        """Get an improved response based on learned patterns."""
+    async def get_relevant_patterns(self, agent_id: str, query: str, limit: int = 3) -> List[LearningPattern]:
+        """Find learned patterns relevant to a query, best match first."""
+        await self._ensure_loaded(agent_id)
         patterns = self.patterns.get(agent_id, [])
 
-        # Find relevant patterns
         relevant = []
         for pattern in patterns:
             # Simple keyword matching (can be enhanced with embeddings)
             if any(word in query.lower() for word in pattern.trigger.lower().split()):
                 relevant.append(pattern)
 
+        relevant.sort(key=lambda p: (p.confidence * p.success_rate), reverse=True)
+        return relevant[:limit]
+
+    async def get_improved_response(self, agent_id: str, query: str,
+                                    base_response: str) -> Tuple[str, List[Dict]]:
+        """Get an improved response based on learned patterns."""
+        relevant = await self.get_relevant_patterns(agent_id, query, limit=3)
         if not relevant:
             return base_response, []
-
-        # Sort by confidence and success rate
-        relevant.sort(key=lambda p: (p.confidence * p.success_rate), reverse=True)
 
         # Apply top patterns
         improved = base_response
         applied_patterns = []
 
-        for pattern in relevant[:3]:
+        for pattern in relevant:
             if pattern.pattern_type == "preference":
                 # Enhance response with preferred style
                 improved = await self._apply_style(improved, pattern.response)
@@ -176,6 +214,7 @@ class SelfLearningSystem:
 
     async def get_learning_stats(self, agent_id: str) -> Dict:
         """Get learning statistics for an agent."""
+        await self._ensure_loaded(agent_id)
         patterns = self.patterns.get(agent_id, [])
         history = self.feedback_history.get(agent_id, [])
         metrics = self.performance_metrics[agent_id]

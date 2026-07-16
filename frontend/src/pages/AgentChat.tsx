@@ -4,9 +4,9 @@ import {
   Send, Bot, User, Trash2, Download,
   Brain, Sparkles, Cloud, CheckCircle, AlertCircle,
   Server, Zap, Mic, MicOff, Plus, Pencil, MessageSquare, Paperclip, X, FileText,
-  Volume2, VolumeX, Wrench, Copy
+  Volume2, VolumeX, Wrench, Copy, ThumbsUp, ThumbsDown
 } from 'lucide-react'
-import { aiChatApi } from '../services/api'
+import { aiChatApi, learningApi, getAnonymousUserId } from '../services/api'
 import toast from 'react-hot-toast'
 import { useVoiceAssistant, ASSISTANT_NAME } from '../hooks/useVoiceAssistant'
 import { useChatProjects } from '../hooks/useChatProjects'
@@ -23,6 +23,7 @@ interface ChatMessage {
   agentTrace?: any[]
   attachmentName?: string
   toolCalls?: { name: string; arguments: string }[]
+  feedbackGiven?: 'up' | 'down'
 }
 
 interface PendingAttachment {
@@ -134,7 +135,7 @@ export default function AgentChat() {
       : `Summarize the key facts, decisions, and context from this conversation so far in a few concise sentences, so it can be used as background context for continuing the conversation later:\n\n${transcript}`
 
     try {
-      const response = await aiChatApi.chat([{ role: 'user', content: prompt }], { agent_mode: 'single' })
+      const response = await aiChatApi.chat([{ role: 'user', content: prompt }], { agent_mode: 'single', user_id: null })
       const summary = response.choices?.[0]?.message?.content
       if (summary) {
         const newCount = summarizedCountRef.current + toFold.length
@@ -260,6 +261,26 @@ export default function AgentChat() {
     summarizedCountRef.current = 0
     updateActiveSummary('', 0)
     toast.success('Chat cleared')
+  }
+
+  const handleFeedback = async (msgIndex: number, rating: 'up' | 'down') => {
+    const assistantMsg = chatHistory[msgIndex]
+    const userMsg = [...chatHistory.slice(0, msgIndex)].reverse().find(m => m.role === 'user')
+    if (!userMsg) return
+
+    setChatHistory(prev => prev.map((m, i) => i === msgIndex ? { ...m, feedbackGiven: rating } : m))
+
+    try {
+      await learningApi.submitFeedback({
+        agent_id: getAnonymousUserId(),
+        query: userMsg.content,
+        response: assistantMsg.content,
+        rating: rating === 'up' ? 5 : 1,
+      })
+      toast.success(rating === 'up' ? 'Thanks! I\'ll remember that.' : 'Thanks for the correction.')
+    } catch (e) {
+      console.error('Feedback error:', e)
+    }
   }
 
   const exportChat = () => {
@@ -613,7 +634,7 @@ export default function AgentChat() {
             </div>
           )}
 
-          {chatHistory.map((msg) => (
+          {chatHistory.map((msg, msgIndex) => (
             <div
               key={msg.id}
               className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -658,14 +679,32 @@ export default function AgentChat() {
                 )}
 
                 {msg.role === 'agent' && msg.content !== '' && (
-                  <button
-                    onClick={() => { navigator.clipboard.writeText(msg.content); toast.success('Copied') }}
-                    className="mt-2 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                    title="Copy response"
-                  >
-                    <Copy className="w-3 h-3" />
-                    Copy
-                  </button>
+                  <div className="mt-2 flex items-center gap-3">
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(msg.content); toast.success('Copied') }}
+                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                      title="Copy response"
+                    >
+                      <Copy className="w-3 h-3" />
+                      Copy
+                    </button>
+                    <button
+                      onClick={() => handleFeedback(msgIndex, 'up')}
+                      disabled={!!msg.feedbackGiven}
+                      className={`transition-colors ${msg.feedbackGiven === 'up' ? 'text-green-400' : 'text-gray-500 hover:text-gray-300'}`}
+                      title="Good response - remember this"
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleFeedback(msgIndex, 'down')}
+                      disabled={!!msg.feedbackGiven}
+                      className={`transition-colors ${msg.feedbackGiven === 'down' ? 'text-red-400' : 'text-gray-500 hover:text-gray-300'}`}
+                      title="Bad response - avoid this next time"
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 )}
 
                 {msg.toolCalls && msg.toolCalls.length > 0 && msg.content !== '' && (

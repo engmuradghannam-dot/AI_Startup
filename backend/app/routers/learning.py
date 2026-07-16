@@ -58,6 +58,10 @@ async def submit_feedback(request: FeedbackRequest):
         feedback=feedback
     )
 
+    # try to extract patterns right away so feedback has a visible effect quickly,
+    # rather than only on the next manual "trigger learning" call
+    await learning_system.learn_from_feedback(request.agent_id)
+
     return {
         "message": "Feedback recorded successfully",
         "agent_id": request.agent_id,
