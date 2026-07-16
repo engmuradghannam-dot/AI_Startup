@@ -8,7 +8,12 @@ import json
 
 from app.services.unified_ai_service import get_unified_ai_service, UnifiedAIService
 from app.services.multi_agent_orchestrator import get_multi_agent_orchestrator, MultiAgentOrchestrator
-from app.services.multi_agent_orchestrator import get_multi_agent_orchestrator, MultiAgentOrchestrator
+from app.services.multi_provider_ai import get_multi_provider_service
+
+# Providers this app has a real image payload adapter for (see multi_provider_ai.py).
+# Any other active provider gets a text note instead of the raw image, so an
+# unsupported model can't crash the request with a "content must be a string" error.
+VISION_CAPABLE_PROVIDERS = {"google", "anthropic", "openai"}
 
 router = APIRouter(prefix="/ai-chat", tags=["AI Chat"])
 
@@ -109,9 +114,27 @@ async def chat(request: ChatRequest):
             and request.attachment.content_type.startswith("image/")
             and request.attachment.is_base64
         )
+        attachment_handled = False
 
-        if request.attachment and not is_image_attachment:
-            # text-like attachments just extend the message content - safe for any mode
+        if is_image_attachment:
+            multi = await get_multi_provider_service()
+            active_provider = await multi._get_active_provider()
+            if active_provider not in VISION_CAPABLE_PROVIDERS:
+                # this provider/model can't accept image content - don't risk a 400,
+                # just let the model know an image was attached that it can't see
+                last = messages[-1]
+                last["content"] = (
+                    f"{last['content']}\n\n"
+                    f"[The user attached an image ({request.attachment.name}), but the active "
+                    f"provider ({active_provider or 'none configured'}) doesn't support image "
+                    f"understanding in this app. Let them know and suggest switching to Google "
+                    f"Gemini or Anthropic Claude in Settings if they want the image reviewed.]"
+                )
+                is_image_attachment = False
+                attachment_handled = True
+
+        if request.attachment and not attachment_handled:
+            # text attachments, or images the active provider can actually accept
             messages = _apply_attachment(messages, request.attachment)
 
         # Vision content only works through the direct single-LLM path

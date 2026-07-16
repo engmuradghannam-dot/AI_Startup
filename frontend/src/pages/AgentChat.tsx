@@ -3,7 +3,8 @@ import { useQuery } from 'react-query'
 import {
   Send, Bot, User, Trash2, Download,
   Brain, Sparkles, Loader2, Cloud, CheckCircle, AlertCircle,
-  Server, Zap, Mic, MicOff, Plus, Pencil, MessageSquare, Paperclip, X, FileText
+  Server, Zap, Mic, MicOff, Plus, Pencil, MessageSquare, Paperclip, X, FileText,
+  Volume2, VolumeX
 } from 'lucide-react'
 import { aiChatApi } from '../services/api'
 import toast from 'react-hot-toast'
@@ -60,6 +61,7 @@ export default function AgentChat() {
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null)
   const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [autoSpeak, setAutoSpeak] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const prevProjectIdRef = useRef<string | null>(null)
@@ -158,6 +160,8 @@ export default function AgentChat() {
       }
 
       setChatHistory(prev => [...prev, assistantMessage])
+      // speak the reply if auto-speak is on, or this came from a voice command (Nova always replies out loud)
+      if (autoSpeak || overrideText !== undefined) speak(replyContent)
       return replyContent
     } catch (error: any) {
       console.error('Chat error:', error)
@@ -178,10 +182,8 @@ export default function AgentChat() {
   }
 
   const { status: voiceStatus, liveTranscript, toggle: toggleVoice, speak, isSupported: voiceSupported } = useVoiceAssistant({
-    onCommand: async (transcript) => {
-      const reply = await handleSend(transcript)
-      if (reply) speak(reply)
-    },
+    // handleSend itself calls speak() for voice-triggered commands, so just send here
+    onCommand: (transcript) => { handleSend(transcript) },
     onError: (msg) => toast.error(msg),
   })
 
@@ -438,6 +440,17 @@ export default function AgentChat() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {'speechSynthesis' in window && (
+              <button
+                onClick={() => setAutoSpeak(!autoSpeak)}
+                className={`p-2 rounded-lg transition-colors ${
+                  autoSpeak ? 'text-white bg-purple-600' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                }`}
+                title={autoSpeak ? 'Stop reading replies aloud' : 'Read replies aloud'}
+              >
+                {autoSpeak ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+              </button>
+            )}
             {voiceSupported && (
               <button
                 onClick={toggleVoice}
