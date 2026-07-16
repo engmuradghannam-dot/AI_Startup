@@ -81,7 +81,7 @@ async def voice_chat(
     audio: UploadFile = File(...),
     agent_id: str = Form(...),
     provider: str = Form("groq"),
-    model: str = Form("llama-3.1-70b-versatile"),
+    model: str = Form("llama-3.3-70b-versatile"),
     api_key: Optional[str] = Form(None),
 ):
     """Full voice chat: Speech-to-Text -> AI -> Text-to-Speech."""

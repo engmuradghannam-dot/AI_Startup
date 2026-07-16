@@ -142,7 +142,7 @@ class MultiAgentOrchestrator:
 
 Always think step by step and provide clear, structured output.""",
                 "skills": ["act-when-ready", "effort-calibrator", "scope-guard", "grounded-progress"],
-                "model": "llama-3.1-70b-versatile",
+                "model": "llama-3.3-70b-versatile",
             },
             {
                 "name": "coder",
@@ -158,7 +158,7 @@ Always think step by step and provide clear, structured output.""",
 
 Always provide production-ready code with comments and explanations.""",
                 "skills": ["no-gold-plating", "skill-refactorer", "autonomous-continuation", "scope-guard"],
-                "model": "llama-3.1-70b-versatile",
+                "model": "llama-3.3-70b-versatile",
             },
             {
                 "name": "analyst",
@@ -174,7 +174,7 @@ Always provide production-ready code with comments and explanations.""",
 
 Always cite evidence and provide structured, analytical output.""",
                 "skills": ["grounded-progress", "regrounding-summary", "markdown-memory", "effort-calibrator"],
-                "model": "llama-3.1-70b-versatile",
+                "model": "llama-3.3-70b-versatile",
             },
             {
                 "name": "coordinator",
@@ -190,7 +190,7 @@ Always cite evidence and provide structured, analytical output.""",
 
 Always produce unified, well-structured final outputs.""",
                 "skills": ["subagent-orchestration", "markdown-memory", "scope-guard", "regrounding-summary"],
-                "model": "llama-3.1-70b-versatile",
+                "model": "llama-3.3-70b-versatile",
             },
         ]
 

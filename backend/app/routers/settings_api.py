@@ -39,7 +39,7 @@ DEFAULT_PROVIDERS = {
         "name": "Groq",
         "api_key": os.getenv("GROQ_API_KEY", ""),
         "base_url": "https://api.groq.com/openai/v1",
-        "default_model": "llama-3.1-70b-versatile",
+        "default_model": "llama-3.3-70b-versatile",
         "is_active": bool(os.getenv("GROQ_API_KEY", "")),
         "temperature": 0.7,
         "max_tokens": 2048,
