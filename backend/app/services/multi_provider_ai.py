@@ -364,6 +364,111 @@ class MultiProviderAIService:
                 "execution_time_ms": (time.time() - start_time) * 1000,
             }
 
+    # Providers whose chat endpoint speaks OpenAI-compatible SSE (`data: {...}` lines,
+    # `choices[0].delta.content`, terminated by `data: [DONE]`) - real token streaming
+    # is only implemented for these. Anthropic/Google/Cohere have their own streaming
+    # formats; rather than build three more parsers right now, streaming for them
+    # falls back to one non-streamed chunk (see stream_chat_completion below).
+    SSE_COMPATIBLE_PROVIDERS = {"groq", "openai", "mistral", "xai", "openrouter", "kimi", "huggingface", "ollama"}
+
+    async def stream_chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2048,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Stream a chat completion, yielding {"delta": text} chunks then a final
+        {"done": True, "model", "provider", "usage"} event, or {"error": message}."""
+        import time
+        start_time = time.time()
+
+        provider_id = await self._get_active_provider()
+
+        if not provider_id:
+            yield {"error": "No AI provider available. Please configure an API key in Settings."}
+            return
+
+        api_key = self._get_api_key(provider_id)
+        if not api_key and provider_id != "ollama":
+            yield {"error": f"{provider_id} API key not configured. Please add it in Settings."}
+            return
+
+        if provider_id not in self.SSE_COMPATIBLE_PROVIDERS:
+            # no streaming parser for this provider yet - fall back to one full chunk
+            result = await self.chat_completion(messages, model=model, temperature=temperature, max_tokens=max_tokens)
+            if not result.get("success"):
+                yield {"error": result.get("error", "Request failed")}
+                return
+            yield {"delta": result["content"]}
+            yield {"done": True, "model": result.get("model"), "provider": provider_id, "usage": result.get("usage", {})}
+            return
+
+        try:
+            base_url = self._get_base_url(provider_id)
+            config = self.PROVIDERS[provider_id]
+            resolved_model = model or self._get_model(provider_id)
+            payload = {
+                "model": resolved_model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": True,
+            }
+
+            full_content = ""
+            usage: Dict[str, Any] = {}
+
+            async with httpx.AsyncClient(
+                base_url=base_url,
+                headers=config["headers"](api_key or ""),
+                timeout=120.0,
+            ) as client:
+                async with client.stream("POST", config["chat_endpoint"], json=payload) as response:
+                    if response.status_code >= 400:
+                        body = (await response.aread()).decode("utf-8", errors="replace")
+                        error_msg = f"HTTP {response.status_code}: {body[:200]}"
+                        if response.status_code == 401:
+                            error_msg = f"Invalid API key for {provider_id}. Please check your settings."
+                        elif response.status_code == 429:
+                            error_msg = f"Rate limit exceeded for {provider_id}. Please try again later."
+                        self._metrics["errors"] += 1
+                        yield {"error": error_msg}
+                        return
+
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        data = line[len("data: "):].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                        except json.JSONDecodeError:
+                            continue
+                        delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                        if delta:
+                            full_content += delta
+                            yield {"delta": delta}
+                        if chunk.get("usage"):
+                            usage = chunk["usage"]
+
+            self._metrics["requests"] += 1
+            self._metrics["provider_usage"][provider_id] = self._metrics["provider_usage"].get(provider_id, 0) + 1
+            yield {"done": True, "model": resolved_model, "provider": provider_id, "usage": usage}
+
+        except httpx.HTTPStatusError as e:
+            self._metrics["errors"] += 1
+            error_msg = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+            if e.response.status_code == 401:
+                error_msg = f"Invalid API key for {provider_id}. Please check your settings."
+            elif e.response.status_code == 429:
+                error_msg = f"Rate limit exceeded for {provider_id}. Please try again later."
+            yield {"error": error_msg}
+        except Exception as e:
+            self._metrics["errors"] += 1
+            yield {"error": f"{provider_id} error: {str(e)}"}
+
     async def get_metrics(self) -> Dict[str, Any]:
         """Get service metrics."""
         return {

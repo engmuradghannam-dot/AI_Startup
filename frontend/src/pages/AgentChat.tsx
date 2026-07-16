@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery } from 'react-query'
 import {
   Send, Bot, User, Trash2, Download,
-  Brain, Sparkles, Loader2, Cloud, CheckCircle, AlertCircle,
+  Brain, Sparkles, Cloud, CheckCircle, AlertCircle,
   Server, Zap, Mic, MicOff, Plus, Pencil, MessageSquare, Paperclip, X, FileText,
   Volume2, VolumeX
 } from 'lucide-react'
@@ -129,52 +129,57 @@ export default function AgentChat() {
     }
     setIsLoading(true)
 
+    const assistantId = generateId()
+    setChatHistory(prev => [...prev, {
+      id: assistantId, role: 'agent', content: '', timestamp: new Date().toISOString(),
+    }])
+
     try {
       const messages = chatHistory
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role, content: m.content }))
         .concat([{ role: 'user', content: effectiveText }])
 
-      const response = await aiChatApi.chat(messages, {
-        model: selectedModel || undefined,
-        agent_mode: agentMode,
-        attachment: attachment
-          ? { name: attachment.name, content_type: attachment.contentType, data: attachment.data, is_base64: attachment.isBase64 }
-          : undefined,
-      })
+      const result = await aiChatApi.chatStream(
+        messages,
+        {
+          model: selectedModel || undefined,
+          agent_mode: agentMode,
+          attachment: attachment
+            ? { name: attachment.name, content_type: attachment.contentType, data: attachment.data, is_base64: attachment.isBase64 }
+            : undefined,
+        },
+        (delta) => {
+          setChatHistory(prev => prev.map(m => m.id === assistantId ? { ...m, content: m.content + delta } : m))
+        }
+      )
 
-      const replyContent = response.choices?.[0]?.message?.content || 'No response'
+      setChatHistory(prev => prev.map(m => m.id === assistantId
+        ? { ...m, content: result.content || 'No response', source: result.source, provider: result.provider, agentTrace: result.agent_trace }
+        : m
+      ))
 
-      const assistantMessage: ChatMessage = {
-        id: generateId(),
-        role: 'agent',
-        content: replyContent,
-        timestamp: new Date().toISOString(),
-        source: response.source,
-        provider: response.provider,
-        agentTrace: response.agent_trace,
+      if (result.agent_trace) {
+        setLastTrace(result.agent_trace)
       }
 
-      if (response.agent_trace) {
-        setLastTrace(response.agent_trace)
-      }
-
-      setChatHistory(prev => [...prev, assistantMessage])
       // speak the reply if auto-speak is on, or this came from a voice command (Nova always replies out loud)
-      if (autoSpeak || overrideText !== undefined) speak(replyContent)
-      return replyContent
+      if (autoSpeak || overrideText !== undefined) speak(result.content)
+      return result.content
     } catch (error: any) {
       console.error('Chat error:', error)
-      const detail = error.response?.data?.detail || error.message
-      toast.error(detail || 'Failed to get response')
+      const detail = error.message || 'Failed to get response'
+      toast.error(detail)
 
-      const errorMessage: ChatMessage = {
-        id: generateId(),
-        role: 'system',
-        content: `Error: ${detail}. Please check your API configuration.`,
-        timestamp: new Date().toISOString(),
-      }
-      setChatHistory(prev => [...prev, errorMessage])
+      setChatHistory(prev => prev
+        .filter(m => m.id !== assistantId)
+        .concat([{
+          id: generateId(),
+          role: 'system',
+          content: `Error: ${detail}. Please check your API configuration.`,
+          timestamp: new Date().toISOString(),
+        }])
+      )
       return null
     } finally {
       setIsLoading(false)
@@ -575,7 +580,14 @@ export default function AgentChat() {
                     : 'bg-gray-800 text-gray-200'
                 }`}
               >
-                <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                {msg.role === 'agent' && msg.content === '' && isLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-gray-400">
+                    <Sparkles className="w-4 h-4 animate-pulse" />
+                    <span>Thinking...</span>
+                  </div>
+                ) : (
+                  <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                )}
 
                 {msg.attachmentName && (
                   <div className="mt-2 flex items-center gap-1.5 text-xs opacity-80">
@@ -602,20 +614,6 @@ export default function AgentChat() {
               )}
             </div>
           ))}
-
-          {isLoading && (
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg bg-blue-900 flex items-center justify-center">
-                <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-              </div>
-              <div className="bg-gray-800 rounded-2xl px-4 py-3">
-                <div className="flex items-center gap-2 text-sm text-gray-400">
-                  <Sparkles className="w-4 h-4 animate-pulse" />
-                  <span>Thinking...</span>
-                </div>
-              </div>
-            </div>
-          )}
 
           <div ref={messagesEndRef} />
         </div>

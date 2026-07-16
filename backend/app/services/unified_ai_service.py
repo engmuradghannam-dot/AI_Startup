@@ -111,20 +111,31 @@ class UnifiedAIService:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-    ) -> AsyncGenerator[str, None]:
-        """Stream completion tokens."""
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Stream completion events: {"delta": text}, then {"done": True, ...}, or {"error": msg}."""
         temp = temperature or 0.7
         max_tok = max_tokens or 2048
 
-        # No native streaming across providers yet - return the complete response as one chunk
-        result = await self.chat_completion(
-            messages=messages,
-            model=model,
-            temperature=temp,
-            max_tokens=max_tok,
-            stream=False,
-        )
-        yield result.get("content", "")
+        multi = await get_multi_provider_service()
+        got_any_delta = False
+        async for event in multi.stream_chat_completion(messages=messages, model=model, temperature=temp, max_tokens=max_tok):
+            if "delta" in event:
+                got_any_delta = True
+                self._metrics["cloud_requests"] += 1
+            yield event
+            if "error" in event and not got_any_delta:
+                # cloud provider never even started responding - try local as a fallback
+                if LOCAL_AVAILABLE and self.mode in ("local", "auto"):
+                    try:
+                        local = await self._get_local_service()
+                        if local and local.is_available:
+                            self._metrics["local_requests"] += 1
+                            result = await local.generate(messages=messages, model=model, temperature=temp, max_tokens=max_tok, stream=False)
+                            yield {"delta": result.get("content", "")}
+                            yield {"done": True, "model": result.get("model"), "provider": local.provider, "usage": {}}
+                    except Exception as e:
+                        self._metrics["errors"] += 1
+                        logger.error(f"Local LLM fallback also failed: {e}")
 
     async def get_available_models(self) -> List[Dict[str, Any]]:
         """Get all available models."""

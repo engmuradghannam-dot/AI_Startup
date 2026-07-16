@@ -64,6 +64,58 @@ export const aiChatApi = {
     return res.data
   },
 
+  // Streaming chat - calls onDelta(text) as each token chunk arrives, resolves with final metadata
+  chatStream: async (
+    messages: any[],
+    options: any = {},
+    onDelta: (text: string) => void
+  ): Promise<{ content: string; model?: string; provider?: string; source?: string; usage?: any; agent_trace?: any[] }> => {
+    const response = await fetch(`${API_BASE_URL}/api/ai-chat/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages,
+        model: options.model || null,
+        temperature: options.temperature || 0.7,
+        max_tokens: options.max_tokens || 2048,
+        agent_mode: options.agent_mode || 'auto',
+        attachment: options.attachment || null,
+      }),
+    })
+
+    if (!response.ok || !response.body) {
+      throw new Error(`Stream request failed: ${response.status}`)
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let content = ''
+    let final: any = {}
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      const lines = buffer.split('\n\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = JSON.parse(line.slice(6))
+        if (payload.error) throw new Error(payload.error)
+        if (payload.delta) {
+          content += payload.delta
+          onDelta(payload.delta)
+        }
+        if (payload.done) final = payload
+      }
+    }
+
+    return { content, ...final }
+  },
+
   // Multi-agent chat
   agentChat: async (task: string, agents?: string[], mode: string = 'hierarchical') => {
     const res = await api.post('/api/ai-chat/agent-chat', {

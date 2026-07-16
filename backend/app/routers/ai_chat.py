@@ -99,6 +99,58 @@ class ModelInfoResponse(BaseModel):
 # CHAT ENDPOINTS
 # ============================================
 
+async def _resolve_messages_and_mode(request: ChatRequest) -> tuple:
+    """Apply any attachment and resolve the final agent_mode. Shared by /chat and /chat/stream."""
+    messages = [{"role": m.role, "content": m.content} for m in request.messages]
+    agent_mode = request.mode or request.agent_mode or "auto"
+
+    is_image_attachment = bool(
+        request.attachment
+        and request.attachment.content_type.startswith("image/")
+        and request.attachment.is_base64
+    )
+    attachment_handled = False
+
+    if is_image_attachment:
+        multi = await get_multi_provider_service()
+        active_provider = await multi._get_active_provider()
+        if active_provider not in VISION_CAPABLE_PROVIDERS:
+            # this provider/model can't accept image content - don't risk a 400,
+            # just let the model know an image was attached that it can't see
+            last = messages[-1]
+            last["content"] = (
+                f"{last['content']}\n\n"
+                f"[The user attached an image ({request.attachment.name}), but the active "
+                f"provider ({active_provider or 'none configured'}) doesn't support image "
+                f"understanding in this app. Let them know and suggest switching to Google "
+                f"Gemini or Anthropic Claude in Settings if they want the image reviewed.]"
+            )
+            is_image_attachment = False
+            attachment_handled = True
+
+    if request.attachment and not attachment_handled:
+        # text attachments, or images the active provider can actually accept
+        messages = _apply_attachment(messages, request.attachment)
+
+    # Vision content only works through the direct single-LLM path
+    if is_image_attachment:
+        agent_mode = "single"
+
+    # Auto-detect if multi-agent is needed
+    if agent_mode == "auto":
+        last_message = messages[-1]["content"] if messages else ""
+        # Simple heuristic: long or complex queries get multi-agent
+        if len(last_message) > 200 or any(kw in last_message.lower() for kw in [
+            "plan", "design", "architecture", "strategy", "analyze", "compare",
+            "create", "build", "develop", "implement", "write code", "debug"
+        ]):
+            agent_mode = "multi"
+        else:
+            agent_mode = "single"
+
+    return messages, agent_mode
+
+
 @router.post("/chat")
 async def chat(request: ChatRequest):
     """Main chat endpoint - auto-detects complexity and uses appropriate mode."""
@@ -106,57 +158,9 @@ async def chat(request: ChatRequest):
         unified_ai = await get_unified_ai_service()
         orchestrator = await get_multi_agent_orchestrator()
 
-        messages = [{"role": m.role, "content": m.content} for m in request.messages]
-        agent_mode = request.mode or request.agent_mode or "auto"
-
-        is_image_attachment = bool(
-            request.attachment
-            and request.attachment.content_type.startswith("image/")
-            and request.attachment.is_base64
-        )
-        attachment_handled = False
-
-        if is_image_attachment:
-            multi = await get_multi_provider_service()
-            active_provider = await multi._get_active_provider()
-            if active_provider not in VISION_CAPABLE_PROVIDERS:
-                # this provider/model can't accept image content - don't risk a 400,
-                # just let the model know an image was attached that it can't see
-                last = messages[-1]
-                last["content"] = (
-                    f"{last['content']}\n\n"
-                    f"[The user attached an image ({request.attachment.name}), but the active "
-                    f"provider ({active_provider or 'none configured'}) doesn't support image "
-                    f"understanding in this app. Let them know and suggest switching to Google "
-                    f"Gemini or Anthropic Claude in Settings if they want the image reviewed.]"
-                )
-                is_image_attachment = False
-                attachment_handled = True
-
-        if request.attachment and not attachment_handled:
-            # text attachments, or images the active provider can actually accept
-            messages = _apply_attachment(messages, request.attachment)
-
-        # Vision content only works through the direct single-LLM path
-        if is_image_attachment:
-            agent_mode = "single"
-
-        # Auto-detect if multi-agent is needed
-        if agent_mode == "auto":
-            last_message = messages[-1]["content"] if messages else ""
-            # Simple heuristic: long or complex queries get multi-agent
-            if len(last_message) > 200 or any(kw in last_message.lower() for kw in [
-                "plan", "design", "architecture", "strategy", "analyze", "compare",
-                "create", "build", "develop", "implement", "write code", "debug"
-            ]):
-                agent_mode = "multi"
-            else:
-                agent_mode = "single"
+        messages, agent_mode = await _resolve_messages_and_mode(request)
 
         if agent_mode == "single":
-            if is_image_attachment:
-                messages = _apply_attachment(messages, request.attachment)
-
             # Direct LLM call
             result = await unified_ai.chat_completion(
                 messages=messages,
@@ -218,6 +222,67 @@ async def chat(request: ChatRequest):
                 detail="AI service unavailable. Please activate a provider in Settings or configure Local LLM."
             )
         raise HTTPException(status_code=500, detail=f"Chat error: {error_msg}")
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """Streaming version of /chat - emits Server-Sent Events as the reply is generated.
+
+    Real token-by-token streaming only happens for agent_mode="single" (direct LLM
+    call) on providers with an SSE parser (see multi_provider_ai.SSE_COMPATIBLE_PROVIDERS).
+    Multi-agent mode runs the normal (blocking) orchestration and streams the final
+    result as one chunk, so the client can use the same event-reading code either way.
+    """
+    from fastapi.responses import StreamingResponse
+
+    async def event_source():
+        def sse(payload: dict) -> str:
+            return f"data: {json.dumps(payload)}\n\n"
+
+        try:
+            unified_ai = await get_unified_ai_service()
+            messages, agent_mode = await _resolve_messages_and_mode(request)
+
+            if agent_mode == "single":
+                async for event in unified_ai.stream_completion(
+                    messages=messages, model=request.model,
+                    temperature=request.temperature, max_tokens=request.max_tokens,
+                ):
+                    if "error" in event:
+                        yield sse({"error": event["error"]})
+                        return
+                    if "delta" in event:
+                        yield sse({"delta": event["delta"]})
+                    if event.get("done"):
+                        yield sse({
+                            "done": True,
+                            "model": event.get("model"),
+                            "provider": event.get("provider"),
+                            "source": event.get("provider"),
+                            "usage": event.get("usage", {}),
+                        })
+            else:
+                orchestrator = await get_multi_agent_orchestrator()
+                task = messages[-1]["content"] if messages else ""
+                context = {"conversation_history": messages[:-1]}
+                mode = "hierarchical" if agent_mode == "multi" else agent_mode
+                result = await orchestrator.execute_multi(task, mode=mode, context=context)
+                yield sse({"delta": result["final_output"]})
+                yield sse({
+                    "done": True,
+                    "model": "multi-agent",
+                    "provider": "multi-agent",
+                    "source": "multi-agent",
+                    "usage": {},
+                    "agent_trace": [
+                        {"agent": t["agent"], "specialty": t.get("specialty", ""), "provider": t.get("provider", "")}
+                        for t in result.get("agent_trace", [])
+                    ],
+                })
+        except Exception as e:
+            yield sse({"error": str(e)})
+
+    return StreamingResponse(event_source(), media_type="text/event-stream")
 
 
 @router.post("/agent-chat")
