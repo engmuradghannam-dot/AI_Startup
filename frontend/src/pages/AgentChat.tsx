@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from 'react-query'
-import { 
-  Send, Bot, User, Trash2, Download, 
+import {
+  Send, Bot, User, Trash2, Download,
   Brain, Sparkles, Loader2, Cloud, CheckCircle, AlertCircle,
-  Server, Zap
+  Server, Zap, Mic, MicOff
 } from 'lucide-react'
 import { aiChatApi } from '../services/api'
 import toast from 'react-hot-toast'
+import { useVoiceAssistant, ASSISTANT_NAME } from '../hooks/useVoiceAssistant'
 
 interface ChatMessage {
   id: string
@@ -63,35 +64,38 @@ export default function AgentChat() {
 
   const generateId = () => Math.random().toString(36).substring(2, 10)
 
-  const handleSend = async () => {
-    if (!message.trim() || isLoading) return
+  const handleSend = async (overrideText?: string): Promise<string | null> => {
+    const textToSend = overrideText ?? message
+    if (!textToSend.trim() || isLoading) return null
 
     const userMessage: ChatMessage = {
       id: generateId(),
       role: 'user',
-      content: message,
+      content: textToSend,
       timestamp: new Date().toISOString(),
     }
 
     setChatHistory(prev => [...prev, userMessage])
-    setMessage('')
+    if (overrideText === undefined) setMessage('')
     setIsLoading(true)
 
     try {
       const messages = chatHistory
         .filter(m => m.role !== 'system')
         .map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role, content: m.content }))
-        .concat([{ role: 'user', content: message }])
+        .concat([{ role: 'user', content: textToSend }])
 
       const response = await aiChatApi.chat(messages, {
         model: selectedModel || undefined,
         agent_mode: agentMode,
       })
 
+      const replyContent = response.choices?.[0]?.message?.content || 'No response'
+
       const assistantMessage: ChatMessage = {
         id: generateId(),
         role: 'agent',
-        content: response.choices?.[0]?.message?.content || 'No response',
+        content: replyContent,
         timestamp: new Date().toISOString(),
         source: response.source,
         provider: response.provider,
@@ -103,21 +107,31 @@ export default function AgentChat() {
       }
 
       setChatHistory(prev => [...prev, assistantMessage])
+      return replyContent
     } catch (error: any) {
       console.error('Chat error:', error)
-      toast.error(error.response?.data?.detail || 'Failed to get response')
+      const detail = error.response?.data?.detail || error.message
+      toast.error(detail || 'Failed to get response')
 
       const errorMessage: ChatMessage = {
         id: generateId(),
         role: 'system',
-        content: `Error: ${error.response?.data?.detail || error.message}. Please check your API configuration.`,
+        content: `Error: ${detail}. Please check your API configuration.`,
         timestamp: new Date().toISOString(),
       }
       setChatHistory(prev => [...prev, errorMessage])
+      return null
     } finally {
       setIsLoading(false)
     }
   }
+
+  const { status: voiceStatus, liveTranscript, toggle: toggleVoice, speak, isSupported: voiceSupported } = useVoiceAssistant({
+    onCommand: async (transcript) => {
+      const reply = await handleSend(transcript)
+      if (reply) speak(reply)
+    },
+  })
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -271,6 +285,23 @@ export default function AgentChat() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {voiceSupported && (
+              <button
+                onClick={toggleVoice}
+                className={`p-2 rounded-lg transition-colors ${
+                  voiceStatus === 'off'
+                    ? 'text-gray-400 hover:text-white hover:bg-gray-800'
+                    : voiceStatus === 'listening-for-command'
+                    ? 'text-white bg-blue-600 animate-pulse'
+                    : voiceStatus === 'speaking'
+                    ? 'text-white bg-purple-600'
+                    : 'text-green-400 bg-gray-800'
+                }`}
+                title={voiceStatus === 'off' ? `Enable "Hey ${ASSISTANT_NAME}" voice control` : `Disable ${ASSISTANT_NAME}`}
+              >
+                {voiceStatus === 'off' ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+              </button>
+            )}
             {lastTrace.length > 0 && (
               <button
                 onClick={() => setShowAgentTrace(!showAgentTrace)}
@@ -296,6 +327,24 @@ export default function AgentChat() {
             </button>
           </div>
         </div>
+
+        {/* Voice Assistant Status Bar */}
+        {voiceStatus !== 'off' && voiceStatus !== 'unsupported' && (
+          <div className="px-6 py-2 bg-blue-950/50 border-b border-blue-900 flex items-center gap-2 text-sm">
+            <Mic className={`w-4 h-4 ${voiceStatus === 'speaking' ? 'text-purple-400' : 'text-blue-400 animate-pulse'}`} />
+            {voiceStatus === 'listening-for-wake' && (
+              <span className="text-blue-300">Say "Hey {ASSISTANT_NAME}" to start talking...</span>
+            )}
+            {voiceStatus === 'listening-for-command' && (
+              <span className="text-blue-300">
+                {ASSISTANT_NAME} is listening{liveTranscript ? `: "${liveTranscript}"` : '...'}
+              </span>
+            )}
+            {voiceStatus === 'speaking' && (
+              <span className="text-purple-300">{ASSISTANT_NAME} is speaking...</span>
+            )}
+          </div>
+        )}
 
         {/* Agent Trace Panel */}
         {showAgentTrace && lastTrace.length > 0 && (
@@ -411,7 +460,7 @@ export default function AgentChat() {
                 rows={1}
               />
               <button
-                onClick={handleSend}
+                onClick={() => handleSend()}
                 disabled={!message.trim() || isLoading}
                 className="p-2 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg transition-colors"
               >
