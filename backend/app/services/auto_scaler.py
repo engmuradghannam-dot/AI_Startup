@@ -41,17 +41,17 @@ class AutoScaler:
         utilization = busy_agents / total_agents if total_agents > 0 else 0
 
         # Scale up if utilization is high
-        if utilization > 0.8 and total_agents < self.settings.AUTO_SCALE_MAX_AGENTS:
+        if utilization > 0.8 and total_agents < self.settings.auto_scale_max_agents:
             agents_to_add = min(
                 max(1, int(total_agents * 0.2)),  # Add 20%
-                self.settings.AUTO_SCALE_MAX_AGENTS - total_agents
+                self.settings.auto_scale_max_agents - total_agents
             )
             await self._scale_up(agents_to_add)
 
         # Scale down if too many idle agents
-        elif utilization < 0.2 and idle_agents > self.settings.AUTO_SCALE_MIN_AGENTS:
+        elif utilization < 0.2 and idle_agents > self.settings.auto_scale_min_agents:
             agents_to_remove = min(
-                idle_agents - self.settings.AUTO_SCALE_MIN_AGENTS,
+                idle_agents - self.settings.auto_scale_min_agents,
                 int(idle_agents * 0.3)  # Remove 30% of idle
             )
             await self._scale_down(agents_to_remove)
@@ -160,9 +160,9 @@ class AutoScaler:
             "idle_agents": idle,
             "auto_scaled_agents": auto_scaled,
             "utilization_rate": round(busy / total * 100, 2) if total > 0 else 0,
-            "auto_scaling_enabled": self.settings.AUTO_SCALE_ENABLED,
-            "max_agents": self.settings.AUTO_SCALE_MAX_AGENTS,
-            "min_agents": self.settings.AUTO_SCALE_MIN_AGENTS,
+            "auto_scaling_enabled": self.settings.auto_scale_enabled,
+            "max_agents": self.settings.auto_scale_max_agents,
+            "min_agents": self.settings.auto_scale_min_agents,
             "timestamp": datetime.utcnow().isoformat(),
         }
 

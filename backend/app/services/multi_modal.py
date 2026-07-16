@@ -114,9 +114,9 @@ class MultiModalService:
             "qa": "Answer questions about the following document:",
         }
 
-        prompt = f"{tasks.get(task, tasks['summarize'])}
+        prompt = f"""{tasks.get(task, tasks['summarize'])}
 
-{content[:8000]}"
+{content[:8000]}"""
 
         messages = [
             {"role": "system", "content": f"You are a document processing assistant. Task: {task}"},

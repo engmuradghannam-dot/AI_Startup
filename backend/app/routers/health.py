@@ -88,9 +88,9 @@ async def groq_status():
             "status": "ok" if validation["valid"] else "error",
             "message": validation["message"],
             "models_count": validation.get("models_count", 0),
-            "api_key_set": bool(groq.settings.GROQ_API_KEY and groq.settings.GROQ_API_KEY != "your_groq_api_key_here"),
-            "base_url": groq.settings.GROQ_BASE_URL,
-            "default_model": groq.settings.GROQ_DEFAULT_MODEL,
+            "api_key_set": bool(groq.settings.groq_api_key and groq.settings.groq_api_key != "your_groq_api_key_here"),
+            "base_url": groq.settings.groq_base_url,
+            "default_model": groq.settings.groq_default_model,
         }
     except Exception as e:
         return {

@@ -322,12 +322,13 @@ Agent Outputs:
                         "round": round_num + 1,
                         "total_rounds": num_rounds,
                     }
+                    shared_insights = "\n".join(shared_memory[-5:])
                     swarm_task = f"""Collaborative round {round_num + 1}/{num_rounds}.
 
 Task: {task}
 
 Shared insights from previous rounds:
-{"\n".join(shared_memory[-5:])}
+{shared_insights}
 
 Build upon previous insights and contribute new perspectives."""
                     round_tasks.append(agent.think(swarm_task, swarm_context))
@@ -340,12 +341,13 @@ Build upon previous insights and contribute new perspectives."""
 
                 trace.extend(valid_results)
 
+            all_contributions = "\n".join(shared_memory)
             final_task = f"""Create final unified response based on all collaborative rounds:
 
 Task: {task}
 
 All contributions:
-{"\n".join(shared_memory)}"""
+{all_contributions}"""
 
             final_result = await self.agents["coordinator"].think(final_task, context)
             trace.append(final_result)

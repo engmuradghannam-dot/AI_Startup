@@ -94,6 +94,21 @@ class Settings(BaseSettings):
     llm_mode: str = os.getenv("LLM_MODE", "groq")
 
     # ============================================
+    # Auto-Scaling
+    # ============================================
+    auto_scale_enabled: bool = os.getenv("AUTO_SCALE_ENABLED", "true").lower() == "true"
+    auto_scale_min_agents: int = int(os.getenv("AUTO_SCALE_MIN_AGENTS", "5"))
+    auto_scale_max_agents: int = int(os.getenv("AUTO_SCALE_MAX_AGENTS", "10000"))
+    auto_scale_cpu_threshold: float = float(os.getenv("AUTO_SCALE_CPU_THRESHOLD", "80.0"))
+    auto_scale_memory_threshold: float = float(os.getenv("AUTO_SCALE_MEMORY_THRESHOLD", "85.0"))
+
+    # ============================================
+    # Cost Optimization
+    # ============================================
+    cost_budget_usd: float = float(os.getenv("COST_BUDGET_USD", "1000.0"))
+    cost_alert_threshold: float = float(os.getenv("COST_ALERT_THRESHOLD", "0.8"))
+
+    # ============================================
     # JWT
     # ============================================
     jwt_secret: str = os.getenv("JWT_SECRET", "super-secret-key-change-in-production")

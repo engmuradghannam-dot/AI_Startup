@@ -88,6 +88,8 @@ class UnifiedAIService:
                         stream=stream,
                         tools=tools,
                     )
+                    if not result.get("success"):
+                        raise RuntimeError(result.get("error", "Groq request failed"))
                     result["source"] = "groq"
                     result["provider"] = "groq"
                     return result

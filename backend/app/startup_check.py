@@ -16,8 +16,7 @@ else:
     print("   Will use fallback key from config.py")
 
 # Check other important variables
-print(f"
-LLM_MODE: {os.getenv('LLM_MODE', 'not set')}")
+print(f"\nLLM_MODE: {os.getenv('LLM_MODE', 'not set')}")
 print(f"PORT: {os.getenv('PORT', 'not set')}")
 print(f"ENVIRONMENT: {os.getenv('ENVIRONMENT', 'not set')}")
 

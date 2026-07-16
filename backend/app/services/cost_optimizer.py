@@ -89,8 +89,8 @@ class CostOptimizer:
         })
 
         # Check budget
-        budget = self.settings.COST_BUDGET_USD
-        threshold = self.settings.COST_ALERT_THRESHOLD
+        budget = self.settings.cost_budget_usd
+        threshold = self.settings.cost_alert_threshold
 
         if self._daily_cost > budget * threshold:
             return {
@@ -146,9 +146,9 @@ class CostOptimizer:
 
         return {
             "daily_cost": round(self._daily_cost, 4),
-            "budget": self.settings.COST_BUDGET_USD,
-            "budget_remaining": round(self.settings.COST_BUDGET_USD - self._daily_cost, 4),
-            "budget_percentage": round(self._daily_cost / self.settings.COST_BUDGET_USD * 100, 2),
+            "budget": self.settings.cost_budget_usd,
+            "budget_remaining": round(self.settings.cost_budget_usd - self._daily_cost, 4),
+            "budget_percentage": round(self._daily_cost / self.settings.cost_budget_usd * 100, 2),
             "total_requests": len(self._cost_history),
             "top_consumers": top_agents,
             "model_costs": self._model_tiers,

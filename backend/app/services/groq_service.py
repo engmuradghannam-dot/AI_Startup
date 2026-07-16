@@ -15,9 +15,9 @@ class GroqService:
     def __init__(self):
         self.settings = get_settings()
         self.client = httpx.AsyncClient(
-            base_url=self.settings.GROQ_BASE_URL,
+            base_url=self.settings.groq_base_url,
             headers={
-                "Authorization": f"Bearer {self.settings.GROQ_API_KEY}",
+                "Authorization": f"Bearer {self.settings.groq_api_key}",
                 "Content-Type": "application/json",
             },
             timeout=120.0,
@@ -61,10 +61,10 @@ class GroqService:
         """Send chat completion request to Groq."""
 
         payload = {
-            "model": model or self.settings.GROQ_DEFAULT_MODEL,
+            "model": model or self.settings.groq_default_model,
             "messages": messages,
-            "temperature": temperature or self.settings.GROQ_TEMPERATURE,
-            "max_tokens": max_tokens or self.settings.GROQ_MAX_TOKENS,
+            "temperature": temperature or self.settings.groq_temperature,
+            "max_tokens": max_tokens or self.settings.groq_max_tokens,
             "stream": stream,
         }
 
@@ -133,10 +133,10 @@ class GroqService:
         """Stream chat completion from Groq."""
 
         payload = {
-            "model": model or self.settings.GROQ_DEFAULT_MODEL,
+            "model": model or self.settings.groq_default_model,
             "messages": messages,
-            "temperature": temperature or self.settings.GROQ_TEMPERATURE,
-            "max_tokens": max_tokens or self.settings.GROQ_MAX_TOKENS,
+            "temperature": temperature or self.settings.groq_temperature,
+            "max_tokens": max_tokens or self.settings.groq_max_tokens,
             "stream": True,
         }
 

@@ -103,7 +103,7 @@ export default function SettingsPage() {
     setLoading(true)
     try {
       await settingsApi.updateProvider(providerId, updates)
-      setMessage(`${PROVIDER_INFO[providerId]?.label || providerId} updated!`)
+      setMessage(`${providers.find(p => p.id === providerId)?.name || providerId} updated!`)
       loadProviders()
     } catch (e) {
       setMessage(`Error updating ${providerId}`)
