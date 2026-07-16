@@ -17,6 +17,8 @@ export interface ChatProject {
   createdAt: string
   updatedAt: string
   messages: StoredMessage[]
+  contextSummary?: string
+  summarizedCount?: number
 }
 
 const PROJECTS_KEY = 'ai-startup:chat-projects'
@@ -125,6 +127,17 @@ export function useChatProjects() {
     })
   }, [activeProjectId])
 
+  const updateActiveSummary = useCallback((contextSummary: string, summarizedCount: number) => {
+    if (!activeProjectId) return
+    setProjects((prev) => {
+      const next = prev.map((p) =>
+        p.id === activeProjectId ? { ...p, contextSummary, summarizedCount } : p
+      )
+      saveProjects(next)
+      return next
+    })
+  }, [activeProjectId])
+
   return {
     projects,
     activeProjectId,
@@ -134,5 +147,6 @@ export function useChatProjects() {
     renameProject,
     deleteProject,
     updateActiveMessages,
+    updateActiveSummary,
   }
 }

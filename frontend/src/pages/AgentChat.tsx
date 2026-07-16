@@ -65,6 +65,8 @@ export default function AgentChat() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const prevProjectIdRef = useRef<string | null>(null)
+  const contextSummaryRef = useRef<string>('')
+  const summarizedCountRef = useRef<number>(0)
 
   const {
     projects,
@@ -75,6 +77,7 @@ export default function AgentChat() {
     renameProject,
     deleteProject,
     updateActiveMessages,
+    updateActiveSummary,
   } = useChatProjects()
 
   const { data: healthData } = useQuery('ai-health', () => aiChatApi.getHealth(), { refetchInterval: 30000 })
@@ -98,6 +101,8 @@ export default function AgentChat() {
     prevProjectIdRef.current = activeProjectId
     setChatHistory((activeProject?.messages as ChatMessage[]) || [])
     setLastTrace([])
+    contextSummaryRef.current = activeProject?.contextSummary || ''
+    summarizedCountRef.current = activeProject?.summarizedCount || 0
   }, [activeProjectId, activeProject])
 
   // Persist every change back to the active project so it survives closing/reopening the app
@@ -107,6 +112,49 @@ export default function AgentChat() {
   }, [chatHistory, activeProjectId, updateActiveMessages])
 
   const generateId = () => Math.random().toString(36).substring(2, 10)
+
+  // Older messages get folded into a rolling summary instead of resending the
+  // full transcript forever - keeps token usage/cost bounded on long chats.
+  const RECENT_WINDOW = 20
+  const SUMMARIZE_TRIGGER = 24
+
+  const maybeSummarizeOlderMessages = async () => {
+    const history = chatHistory.filter(m => m.role !== 'system')
+    const unsummarized = history.slice(summarizedCountRef.current)
+    if (unsummarized.length <= SUMMARIZE_TRIGGER) return
+
+    const toFold = unsummarized.slice(0, unsummarized.length - RECENT_WINDOW)
+    if (toFold.length === 0) return
+
+    const transcript = toFold.map(m => `${m.role}: ${m.content}`).join('\n')
+    const prompt = contextSummaryRef.current
+      ? `Existing summary of earlier conversation:\n${contextSummaryRef.current}\n\nNew messages to fold in:\n${transcript}\n\nUpdate the summary to include the new messages. Keep it concise (a few short sentences) and preserve key facts, decisions, and user preferences.`
+      : `Summarize the key facts, decisions, and context from this conversation so far in a few concise sentences, so it can be used as background context for continuing the conversation later:\n\n${transcript}`
+
+    try {
+      const response = await aiChatApi.chat([{ role: 'user', content: prompt }], { agent_mode: 'single' })
+      const summary = response.choices?.[0]?.message?.content
+      if (summary) {
+        const newCount = summarizedCountRef.current + toFold.length
+        contextSummaryRef.current = summary
+        summarizedCountRef.current = newCount
+        updateActiveSummary(summary, newCount)
+      }
+    } catch (e) {
+      console.error('Conversation summarization failed (non-fatal):', e)
+    }
+  }
+
+  const buildApiMessages = (newUserText: string) => {
+    const history = chatHistory.filter(m => m.role !== 'system')
+    const recent = history.slice(summarizedCountRef.current)
+    const base = contextSummaryRef.current
+      ? [{ role: 'system', content: `Summary of earlier conversation:\n${contextSummaryRef.current}` }]
+      : []
+    return base
+      .concat(recent.map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role, content: m.content })))
+      .concat([{ role: 'user', content: newUserText }])
+  }
 
   const handleSend = async (overrideText?: string): Promise<string | null> => {
     const attachment = overrideText === undefined ? pendingAttachment : null
@@ -135,10 +183,8 @@ export default function AgentChat() {
     }])
 
     try {
-      const messages = chatHistory
-        .filter(m => m.role !== 'system')
-        .map(m => ({ role: m.role === 'agent' ? 'assistant' : m.role, content: m.content }))
-        .concat([{ role: 'user', content: effectiveText }])
+      await maybeSummarizeOlderMessages()
+      const messages = buildApiMessages(effectiveText)
 
       const result = await aiChatApi.chatStream(
         messages,
@@ -202,6 +248,9 @@ export default function AgentChat() {
   const clearChat = () => {
     setChatHistory([])
     setLastTrace([])
+    contextSummaryRef.current = ''
+    summarizedCountRef.current = 0
+    updateActiveSummary('', 0)
     toast.success('Chat cleared')
   }
 
