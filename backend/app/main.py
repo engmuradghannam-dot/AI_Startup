@@ -30,6 +30,25 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("AI Startup Server Starting...")
 
+    # Initialize database (MongoDB + Beanie ODM)
+    db_ready = False
+    try:
+        from app.database import init_db
+        await init_db()
+        db_ready = True
+        logger.info("Database initialized")
+    except Exception as e:
+        logger.warning(f"Database initialization: {e} - running without persistence")
+
+    # Seed the skill catalog from app/skills/*/SKILL.md
+    if db_ready:
+        try:
+            from app.services.skill_seeder import seed_skills_from_catalog
+            seed_result = await seed_skills_from_catalog()
+            logger.info(f"Skill catalog seeded: {seed_result}")
+        except Exception as e:
+            logger.warning(f"Skill catalog seeding: {e}")
+
     # Initialize Groq service
     try:
         from app.services.groq_service import get_groq_service

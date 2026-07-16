@@ -71,21 +71,17 @@ async def list_skills(
 
 @router.get("/categories")
 async def get_categories():
-    """Get skill categories with counts."""
+    """Get skill categories with counts, computed from the actual catalog."""
     try:
-        # Return mock categories if DB is not available
-        return {
-            "fable5": {"total": 10, "enabled": 10},
-            "orchestration": {"total": 5, "enabled": 5},
-            "scaling": {"total": 3, "enabled": 3},
-            "optimization": {"total": 4, "enabled": 4},
-            "security": {"total": 2, "enabled": 2},
-            "monitoring": {"total": 3, "enabled": 3},
-            "learning": {"total": 4, "enabled": 4},
-            "deployment": {"total": 2, "enabled": 2},
-            "multimodal": {"total": 3, "enabled": 3},
-        }
+        summary = {}
+        for category in SkillCategory:
+            total = await Skill.find(Skill.category == category).count()
+            enabled = await Skill.find(Skill.category == category, Skill.enabled == True).count()
+            if total:
+                summary[category.value] = {"total": total, "enabled": enabled}
+        return summary
     except Exception as e:
+        # DB not available - no categories to report
         return {}
 
 
